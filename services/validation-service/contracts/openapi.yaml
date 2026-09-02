@@ -1,0 +1,254 @@
+openapi: 3.1.0
+info:
+  title: Validation Service API
+  description: Business rules validation engine for payment processing
+  version: 1.0.0
+  contact:
+    name: Payment Platform Team
+
+servers:
+  - url: http://localhost:3003
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /validate:
+    post:
+      summary: Validate a payment
+      operationId: validatePayment
+      tags: [Validation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ValidationResult'
+
+  /rules:
+    get:
+      summary: Get all validation rules
+      operationId: listRules
+      tags: [Rules]
+      parameters:
+        - name: enabled
+          in: query
+          schema:
+            type: boolean
+          description: Filter by enabled status
+      responses:
+        '200':
+          description: List of validation rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidationRule'
+                  count:
+                    type: integer
+
+  /rules/{ruleId}:
+    get:
+      summary: Get rule by ID
+      operationId: getRule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Rule details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ValidationRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    ValidationRequest:
+      type: object
+      required:
+        - paymentId
+        - amount
+        - currency
+        - senderAccountId
+        - senderCountry
+        - receiverAccountId
+        - receiverCountry
+      properties:
+        paymentId:
+          type: string
+          example: PAY-20260902-A1B2C3
+        amount:
+          type: number
+          format: double
+          example: 1000
+        currency:
+          type: string
+          example: GBP
+        targetCurrency:
+          type: string
+          example: EUR
+        senderAccountId:
+          type: string
+          example: ACC001
+        senderAccountNumber:
+          type: string
+        senderCountry:
+          type: string
+          example: GB
+        receiverAccountId:
+          type: string
+          example: ACC002
+        receiverAccountNumber:
+          type: string
+        receiverCountry:
+          type: string
+          example: DE
+
+    ValidationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          description: Overall validation result
+        paymentId:
+          type: string
+        rulesChecked:
+          type: integer
+          description: Number of rules checked
+        rulesPassed:
+          type: array
+          items:
+            type: string
+          description: List of passed rule names
+        rulesFailed:
+          type: array
+          items:
+            $ref: '#/components/schemas/FailedRule'
+          description: List of failed rules with details
+        timestamp:
+          type: string
+          format: date-time
+
+    FailedRule:
+      type: object
+      properties:
+        rule:
+          type: string
+          description: Rule name
+        message:
+          type: string
+          description: Failure reason
+        severity:
+          type: string
+          enum: [ERROR, WARNING]
+        details:
+          type: object
+
+    ValidationRule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: AMOUNT_LIMIT_SINGLE
+        description:
+          type: string
+          example: Single transaction amount limit
+        enabled:
+          type: boolean
+        severity:
+          type: string
+          enum: [ERROR, WARNING]
+        parameters:
+          type: object
+          description: Rule-specific parameters
+          example:
+            maxAmount: 1000000
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: validation-service
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Validation
+    description: Payment validation operations
+  - name: Rules
+    description: Validation rules management

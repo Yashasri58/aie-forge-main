@@ -1,0 +1,17 @@
+{
+  "name": "account-service",
+  "version": "1.0.0",
+  "description": "Account management service for cross-border wire transfer system",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "init-db": "node src/db/init.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.4.3",
+    "uuid": "^9.0.0",
+    "cors": "^2.8.5"
+  }
+}

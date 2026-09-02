@@ -1,0 +1,648 @@
+openapi: 3.1.0
+info:
+  title: Gateway Service API
+  description: API Gateway for cross-border wire transfer system
+  version: 1.0.0
+  contact:
+    name: Payment Platform Team
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /:
+    get:
+      summary: API information
+      operationId: getApiInfo
+      tags: [Info]
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiInfo'
+
+  # ==================== PAYMENTS ====================
+  /api/payments:
+    post:
+      summary: Initiate a new payment
+      operationId: createPayment
+      tags: [Payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Payment initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      summary: List payments
+      operationId: listPayments
+      tags: [Payments]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of payments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentList'
+
+  /api/payments/{paymentId}:
+    get:
+      summary: Get payment by ID
+      operationId: getPayment
+      tags: [Payments]
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/{paymentId}/details:
+    get:
+      summary: Get payment with full details
+      operationId: getPaymentDetails
+      tags: [Payments]
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment with audit trail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentDetails'
+
+  # ==================== ACCOUNTS ====================
+  /api/accounts:
+    get:
+      summary: List all accounts
+      operationId: listAccounts
+      tags: [Accounts]
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountList'
+
+    post:
+      summary: Create a new account
+      operationId: createAccount
+      tags: [Accounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+
+  /api/accounts/{accountId}:
+    get:
+      summary: Get account by ID
+      operationId: getAccount
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+
+  /api/accounts/{accountId}/balance:
+    get:
+      summary: Get account balance
+      operationId: getBalance
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Account balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+
+  /api/accounts/lookup/{accountNumber}/{bankCode}:
+    get:
+      summary: Lookup account
+      operationId: lookupAccount
+      tags: [Accounts]
+      parameters:
+        - name: accountNumber
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bankCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+
+  # ==================== FX ====================
+  /api/fx/rates:
+    get:
+      summary: Get all exchange rates
+      operationId: getAllRates
+      tags: [FX]
+      responses:
+        '200':
+          description: Exchange rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateList'
+
+  /api/fx/rates/{baseCurrency}/{targetCurrency}:
+    get:
+      summary: Get specific rate
+      operationId: getRate
+      tags: [FX]
+      parameters:
+        - name: baseCurrency
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: targetCurrency
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exchange rate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeRate'
+
+  /api/fx/convert:
+    post:
+      summary: Convert currency
+      operationId: convertCurrency
+      tags: [FX]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvertRequest'
+      responses:
+        '200':
+          description: Conversion result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionResult'
+
+  # ==================== AUDIT ====================
+  /api/audit/events:
+    get:
+      summary: List audit events
+      operationId: listAuditEvents
+      tags: [Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+
+  /api/audit/events/{eventId}:
+    get:
+      summary: Get audit event
+      operationId: getAuditEvent
+      tags: [Audit]
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEvent'
+
+  /api/audit/payments/{paymentId}:
+    get:
+      summary: Get audit trail for payment
+      operationId: getPaymentAuditTrail
+      tags: [Audit]
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditTrail'
+
+components:
+  parameters:
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        type: string
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    ApiInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Cross-Border Wire Transfer API
+        version:
+          type: string
+          example: 1.0.0
+        endpoints:
+          type: object
+          properties:
+            payments:
+              type: string
+            accounts:
+              type: string
+            fx:
+              type: string
+            audit:
+              type: string
+
+    CreatePaymentRequest:
+      type: object
+      required: [senderAccountNumber, senderBankCode, receiverAccountNumber, receiverBankCode, amount, currency]
+      properties:
+        senderAccountNumber:
+          type: string
+        senderBankCode:
+          type: string
+        receiverAccountNumber:
+          type: string
+        receiverBankCode:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        reference:
+          type: string
+
+    Payment:
+      type: object
+      properties:
+        paymentId:
+          type: string
+        status:
+          type: string
+        sender:
+          $ref: '#/components/schemas/PartyInfo'
+        receiver:
+          $ref: '#/components/schemas/PartyInfo'
+        amount:
+          type: number
+        currency:
+          type: string
+        targetAmount:
+          type: number
+        targetCurrency:
+          type: string
+        fxRate:
+          type: number
+        feeAmount:
+          type: number
+        totalDebit:
+          type: number
+        reference:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    PaymentDetails:
+      allOf:
+        - $ref: '#/components/schemas/Payment'
+        - type: object
+          properties:
+            statusHistory:
+              type: array
+              items:
+                type: object
+            auditTrail:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuditEvent'
+
+    PaymentList:
+      type: object
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+        count:
+          type: integer
+
+    PartyInfo:
+      type: object
+      properties:
+        accountId:
+          type: string
+        accountNumber:
+          type: string
+        bankCode:
+          type: string
+        name:
+          type: string
+        country:
+          type: string
+
+    CreateAccountRequest:
+      type: object
+      required: [holderName, accountNumber, bankCode, currency, country]
+      properties:
+        holderName:
+          type: string
+        accountNumber:
+          type: string
+        bankCode:
+          type: string
+        currency:
+          type: string
+        country:
+          type: string
+        balance:
+          type: number
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+        accountNumber:
+          type: string
+        bankCode:
+          type: string
+        holderName:
+          type: string
+        currency:
+          type: string
+        balance:
+          type: number
+        country:
+          type: string
+        status:
+          type: string
+
+    AccountList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        count:
+          type: integer
+
+    BalanceResponse:
+      type: object
+      properties:
+        accountId:
+          type: string
+        balance:
+          type: number
+        currency:
+          type: string
+
+    ConvertRequest:
+      type: object
+      required: [from, to, amount]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        amount:
+          type: number
+
+    ConversionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            from:
+              type: string
+            to:
+              type: string
+            originalAmount:
+              type: number
+            convertedAmount:
+              type: number
+            rate:
+              type: number
+
+    ExchangeRate:
+      type: object
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        rate:
+          type: number
+
+    RateList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExchangeRate'
+        count:
+          type: integer
+
+    AuditEvent:
+      type: object
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        actor:
+          type: string
+        details:
+          type: object
+        createdAt:
+          type: string
+
+    AuditEventList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+
+    AuditTrail:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            paymentId:
+              type: string
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuditEvent'
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        timestamp:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Health
+    description: Health check
+  - name: Info
+    description: API information
+  - name: Payments
+    description: Payment operations
+  - name: Accounts
+    description: Account operations
+  - name: FX
+    description: Foreign exchange
+  - name: Audit
+    description: Audit trail

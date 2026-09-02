@@ -1,0 +1,301 @@
+openapi: 3.1.0
+info:
+  title: FX Service API
+  description: Foreign exchange rates and currency conversion service
+  version: 1.0.0
+  contact:
+    name: Payment Platform Team
+
+servers:
+  - url: http://localhost:3005
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /rates:
+    get:
+      summary: Get all exchange rates
+      operationId: getAllRates
+      tags: [Rates]
+      responses:
+        '200':
+          description: List of all exchange rates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExchangeRate'
+                  count:
+                    type: integer
+
+  /rates/{baseCurrency}:
+    get:
+      summary: Get rates for a specific base currency
+      operationId: getRatesForCurrency
+      tags: [Rates]
+      parameters:
+        - name: baseCurrency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Currency'
+      responses:
+        '200':
+          description: Rates for the base currency
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExchangeRate'
+                  count:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /rates/{baseCurrency}/{targetCurrency}:
+    get:
+      summary: Get specific exchange rate
+      operationId: getRate
+      tags: [Rates]
+      parameters:
+        - name: baseCurrency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Currency'
+        - name: targetCurrency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Currency'
+      responses:
+        '200':
+          description: Exchange rate for the currency pair
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ExchangeRate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /convert:
+    post:
+      summary: Convert currency
+      operationId: convertCurrency
+      tags: [Conversion]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvertRequest'
+      responses:
+        '200':
+          description: Conversion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ConversionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      summary: Convert currency (via query params)
+      operationId: convertCurrencyGet
+      tags: [Conversion]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Currency'
+        - name: to
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Currency'
+        - name: amount
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+      responses:
+        '200':
+          description: Conversion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ConversionResult'
+
+components:
+  schemas:
+    Currency:
+      type: string
+      enum: [USD, EUR, GBP, SGD, JPY, CHF, AUD, CAD, HKD]
+
+    ExchangeRate:
+      type: object
+      properties:
+        from:
+          $ref: '#/components/schemas/Currency'
+        to:
+          $ref: '#/components/schemas/Currency'
+        rate:
+          type: number
+          format: double
+          description: Mid-market rate
+          example: 1.15
+        bidRate:
+          type: number
+          format: double
+          description: Buy rate
+        askRate:
+          type: number
+          format: double
+          description: Sell rate
+        spread:
+          type: number
+          format: double
+          description: Spread percentage
+          example: 0.005
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConvertRequest:
+      type: object
+      required:
+        - from
+        - to
+        - amount
+      properties:
+        from:
+          $ref: '#/components/schemas/Currency'
+        to:
+          $ref: '#/components/schemas/Currency'
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 1000
+
+    ConversionResult:
+      type: object
+      properties:
+        from:
+          $ref: '#/components/schemas/Currency'
+        to:
+          $ref: '#/components/schemas/Currency'
+        originalAmount:
+          type: number
+          format: double
+          example: 1000
+        convertedAmount:
+          type: number
+          format: double
+          example: 1144.25
+        rate:
+          type: number
+          format: double
+          description: Applied rate (after spread)
+          example: 1.14425
+        midRate:
+          type: number
+          format: double
+          description: Mid-market rate
+          example: 1.15
+        spread:
+          type: number
+          format: double
+          example: 0.005
+        timestamp:
+          type: string
+          format: date-time
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: fx-service
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Rates
+    description: Exchange rate operations
+  - name: Conversion
+    description: Currency conversion operations

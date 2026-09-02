@@ -1,0 +1,377 @@
+openapi: 3.1.0
+info:
+  title: Ledger Service API
+  description: Double-entry bookkeeping ledger for payment transactions
+  version: 1.0.0
+  contact:
+    name: Payment Platform Team
+
+servers:
+  - url: http://localhost:3004
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /entries:
+    get:
+      summary: List ledger entries
+      operationId: listEntries
+      tags: [Entries]
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: string
+        - name: paymentId
+          in: query
+          schema:
+            type: string
+        - name: entryType
+          in: query
+          schema:
+            $ref: '#/components/schemas/EntryType'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of ledger entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LedgerEntry'
+                  count:
+                    type: integer
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /entries/{entryId}:
+    get:
+      summary: Get entry by ID
+      operationId: getEntry
+      tags: [Entries]
+      parameters:
+        - name: entryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ledger entry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/LedgerEntry'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /entries/posting:
+    post:
+      summary: Create posting entries for a payment
+      operationId: createPosting
+      tags: [Entries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostingRequest'
+      responses:
+        '201':
+          description: Posting created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/PostingResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /entries/payment/{paymentId}:
+    get:
+      summary: Get entries for a payment
+      operationId: getEntriesByPayment
+      tags: [Entries]
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ledger entries for the payment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LedgerEntry'
+
+  /entries/account/{accountId}:
+    get:
+      summary: Get entries for an account
+      operationId: getEntriesByAccount
+      tags: [Entries]
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Ledger entries for the account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LedgerEntry'
+
+  /balance/{accountId}:
+    get:
+      summary: Get account balance from ledger
+      operationId: getAccountBalance
+      tags: [Balance]
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/BalanceSummary'
+
+components:
+  schemas:
+    EntryType:
+      type: string
+      enum: [DEBIT, CREDIT]
+
+    LedgerEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        entryId:
+          type: string
+          example: ENT-abc123-0001
+        paymentId:
+          type: string
+          example: PAY-20260902-A1B2C3
+        accountId:
+          type: string
+          example: ACC001
+        entryType:
+          $ref: '#/components/schemas/EntryType'
+        amount:
+          type: number
+          format: double
+          example: 1016
+        currency:
+          type: string
+          example: GBP
+        balanceBefore:
+          type: number
+          format: double
+        balanceAfter:
+          type: number
+          format: double
+        description:
+          type: string
+          example: Wire transfer to ACC002
+        createdAt:
+          type: string
+          format: date-time
+
+    PostingRequest:
+      type: object
+      required:
+        - paymentId
+        - senderAccountId
+        - receiverAccountId
+        - amount
+        - currency
+      properties:
+        paymentId:
+          type: string
+        senderAccountId:
+          type: string
+        receiverAccountId:
+          type: string
+        amount:
+          type: number
+          format: double
+          description: Original amount
+        currency:
+          type: string
+        targetAmount:
+          type: number
+          format: double
+          description: Converted amount (for cross-currency)
+        targetCurrency:
+          type: string
+        feeAmount:
+          type: number
+          format: double
+          default: 0
+        senderBalanceBefore:
+          type: number
+          format: double
+        receiverBalanceBefore:
+          type: number
+          format: double
+
+    PostingResult:
+      type: object
+      properties:
+        paymentId:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+        summary:
+          type: object
+          properties:
+            debitTotal:
+              type: number
+              format: double
+            creditTotal:
+              type: number
+              format: double
+            entryCount:
+              type: integer
+
+    BalanceSummary:
+      type: object
+      properties:
+        accountId:
+          type: string
+        totalDebits:
+          type: number
+          format: double
+        totalCredits:
+          type: number
+          format: double
+        netBalance:
+          type: number
+          format: double
+        entryCount:
+          type: integer
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: ledger-service
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Entries
+    description: Ledger entry operations
+  - name: Balance
+    description: Balance calculations
