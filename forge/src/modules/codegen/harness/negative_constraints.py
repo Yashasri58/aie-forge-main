@@ -24,6 +24,9 @@ import re
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 
+import logging
+logger = logging.getLogger("forge.codegen.harness")
+
 from .models import (
     HarnessViolation,
     ViolationSeverity,
@@ -113,6 +116,10 @@ class NegativeConstraintChecker:
         """
         violations = []
         
+        logger.info(f"[NEGCONST] service={service_id}: Checking {len(self.constraints)} constraints across {len(diffs)} diffs")
+        for c in self.constraints:
+            logger.debug(f"[NEGCONST]    constraint: {c.name} ({c.severity.value})")
+        
         for diff in diffs:
             for constraint in self.constraints:
                 check_method = getattr(self, constraint.check_fn, None)
@@ -120,11 +127,21 @@ class NegativeConstraintChecker:
                     constraint_violations = check_method(
                         service_id, diff, constraint
                     )
+                    if constraint_violations:
+                        logger.warning(f"[NEGCONST]    {diff.file_path} — violated: {constraint.name}")
+                        for v in constraint_violations:
+                            logger.warning(f"[NEGCONST]      [{v.severity.value}] line {v.line_number}: {v.description[:80]}")
                     violations.extend(constraint_violations)
         
+        passed = len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0
+        if violations:
+            violated_names = list({v.name for v in violations})
+            logger.info(f"[NEGCONST] service={service_id}: {'PASS' if passed else 'FAIL'} — violated: {violated_names}")
+        else:
+            logger.info(f"[NEGCONST] service={service_id}: PASS — all constraints satisfied")
         return CheckResult(
             check_type=CheckType.NEGATIVE_CONSTRAINT,
-            passed=len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0,
+            passed=passed,
             violations=violations,
         )
     

@@ -27,6 +27,7 @@ from .schemas import (
     TaskFile,
     AgentOutput,
     VerificationResult,
+    VerificationIssue,
     CodeGenResult,
     CodeGenStage,
     CodeGenState,
@@ -42,6 +43,13 @@ from .logging_config import (
     log_task_complete,
     log_diff_preview,
 )
+
+# Demo cache — lazy import
+try:
+    from modules.cache.demo_cache import get_cache as _get_cache
+    _CACHE_AVAILABLE = True
+except ImportError:
+    _CACHE_AVAILABLE = False
 
 
 # Maximum concurrent implementation agents
@@ -258,12 +266,38 @@ class CodeGenOrchestrator:
         except Exception as e:
             state.log(f"Verification error: {e}", "warning")
             logger.error(f"❌ Verification error: {e}", exc_info=True)
-            # Non-fatal, continue with warnings
-            state.verification = VerificationResult(passed=True, issues=[])
+            # Non-fatal but mark as NOT passed so human sees it at approval
+            state.verification = VerificationResult(
+                passed=False,
+                issues=[VerificationIssue(
+                    file="harness",
+                    severity="warning",
+                    issue=f"Verification harness crashed: {e}",
+                    category="harness_error",
+                    suggestion="Review server logs for the full traceback",
+                    fix_instruction="",
+                )]
+            )
         
         # === PHASE 5: RETRY (if needed) ===
         if not state.verification.passed and state.iteration < state.max_iterations:
-            state = await self._retry_failed(state, task_files)
+            # Check if all errors are identical to previous iteration (stale — won't improve)
+            current_error_set = frozenset(
+                i.issue for i in state.verification.issues if i.severity == "error"
+            )
+            prev_error_set = getattr(state, '_prev_error_set', None)
+            
+            if prev_error_set is not None and current_error_set == prev_error_set:
+                logger.warning(
+                    f"⏭ Errors identical to previous iteration — skipping retry "
+                    f"(same {len(current_error_set)} errors, retrying won't help)"
+                )
+                state.log(
+                    f"Errors unchanged after retry — skipping further retries", "warning"
+                )
+            else:
+                state._prev_error_set = current_error_set
+                state = await self._retry_failed(state, task_files)
         
         # === PHASE 6: READY FOR APPROVAL ===
         state.stage = CodeGenStage.AWAITING_APPROVAL
@@ -382,13 +416,30 @@ class CodeGenOrchestrator:
             
             if verification.passed:
                 state.log("Verification passed after fixes!", "success")
+                logger.info("✅ Verification passed after retry")
             else:
                 error_count = sum(1 for i in verification.issues if i.severity == "error")
                 state.log(f"Still {error_count} errors after retry", "warning")
+                logger.warning(f"⚠️ Still {error_count} errors after retry {state.iteration}")
                 
-                # Recurse if more iterations allowed
-                if state.iteration < state.max_iterations:
+                # Check for stale errors before recursing
+                current_error_set = frozenset(
+                    i.issue for i in verification.issues if i.severity == "error"
+                )
+                prev_error_set = getattr(state, '_prev_error_set', None)
+                
+                if prev_error_set is not None and current_error_set == prev_error_set:
+                    logger.warning(
+                        f"⏭ Errors identical to previous retry — stopping "
+                        f"(same {len(current_error_set)} errors, further retries won't help)"
+                    )
+                    state.log("Errors unchanged — stopping retry loop", "warning")
+                elif state.iteration < state.max_iterations:
+                    # Still have budget and new errors — continue
+                    state._prev_error_set = current_error_set
                     return await self._retry_failed(state, task_files)
+                else:
+                    logger.info(f"[RETRY] Max iterations ({state.max_iterations}) reached")
                     
         except Exception as e:
             state.log(f"Verification error during retry: {e}", "warning")
@@ -415,6 +466,31 @@ class CodeGenOrchestrator:
         state.stage = CodeGenStage.APPROVED
         state.log("Changes approved by user", "success")
         state.updated_at = time.time()
+        
+        # ── DEMO CACHE: save after human approves ────────────────────────────
+        if _CACHE_AVAILABLE and state.diffs:
+            try:
+                impact = state.impact_report or {}
+                change_req = impact.get("change_request", "Code generation")[:60]
+                services = impact.get("requirements", {}).get("services", []) if isinstance(impact.get("requirements"), dict) else []
+                label = f"{change_req} [{', '.join(services[:2])}]" if services else change_req
+                cache_input = {
+                    "change_request": impact.get("change_request", ""),
+                    "services": services,
+                }
+                _get_cache().save(
+                    cache_id=state.id,
+                    pipeline_type="codegen",
+                    label=label,
+                    input_data=cache_input,
+                    output_data={
+                        "diffs": [d.__dict__ if hasattr(d, '__dict__') else d for d in state.diffs],
+                        "plan":  state.plan.to_dict() if state.plan else {},
+                    },
+                )
+                logger.info(f"[CACHE] CodeGen saved: id={state.id!r} label={label!r}")
+            except Exception as _ce:
+                logger.warning(f"[CACHE] Save failed (non-fatal): {_ce}")
         
         return state
     

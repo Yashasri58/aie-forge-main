@@ -8,9 +8,13 @@ Harness items implemented in this file:
 - ITEM 2: Output grounding — remove hallucinated service names from agent output
 """
 
+import re
 from typing import TypedDict, Optional
+import logging
 from .base import BaseADKAgent
 from .harness_utils import ground_services
+
+_log = logging.getLogger("forge.agents.context_gatherer")
 
 
 class RequirementsOutput(TypedDict):
@@ -296,7 +300,7 @@ class ContextGathererAgent(BaseADKAgent):
             known = _graph_tools.services
             valid, hallucinated = ground_services(result["services"], known)
             if hallucinated:
-                print(f"  [HARNESS ITEM 2] Removed hallucinated services: {hallucinated}")
+                _log.warning(f"[CONTEXT_GATHERER] [HARNESS ITEM 2] Removed hallucinated services: {hallucinated}")
                 result["services"] = valid
                 note = (
                     f"Note: services {hallucinated} were not found in the codebase and were removed. "

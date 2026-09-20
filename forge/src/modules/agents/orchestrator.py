@@ -36,6 +36,16 @@ from .harness_utils import (
     LoopDetector,
 )
 
+import logging
+_log = logging.getLogger("forge.agents.orchestrator")
+
+# Demo cache — imported lazily so missing module doesn't break the pipeline
+try:
+    from modules.cache.demo_cache import get_cache as _get_cache
+    _CACHE_AVAILABLE = True
+except ImportError:
+    _CACHE_AVAILABLE = False
+
 # =============================================================================
 # C1: SQLite STATE PERSISTENCE
 # =============================================================================
@@ -74,7 +84,7 @@ def _save_session(pipeline_id: str, stage: str, state_dict: dict):
             """, (pipeline_id, stage, pipeline_id, time.time(),
                   time.time(), json.dumps(state_dict, default=str)))
     except Exception as e:
-        print(f"  [HARNESS C1] Session save failed (non-fatal): {e}")
+        _log.error(f"[ORCHESTRATOR]   [HARNESS C1] Session save failed (non-fatal): {e}")
 
 
 def _load_session(pipeline_id: str) -> dict | None:
@@ -126,6 +136,10 @@ class PipelineState:
     iteration: int = 1
     max_iterations: int = 3
     gaps_history: list = field(default_factory=list)
+    
+    # Best report tracking — keep highest-confidence report seen across iterations
+    _best_report: Optional[str] = field(default=None, repr=False)
+    _best_report_confidence: str = field(default="LOW", repr=False)
     
     # Live activity log for frontend
     activity_log: list = field(default_factory=list)
@@ -271,7 +285,7 @@ class PipelineOrchestrator:
         clean_message, was_sanitized = sanitize_message(message)
         if was_sanitized:
             # Log the blocked injection but don't expose details
-            print(f"  [HARNESS C2] Prompt injection attempt detected and sanitized")
+            _log.info(f"[ORCHESTRATOR]   [HARNESS C2] Prompt injection attempt detected and sanitized")
         
         state = PipelineState(
             id=str(uuid.uuid4()),
@@ -301,7 +315,7 @@ class PipelineOrchestrator:
             AgentLogger.stage_change("REQUIREMENTS_READY", f"Clarity: {requirements.get('clarity_score', 'N/A')}/10")
         else:
             state.current_question = requirements.get("follow_up_question")
-            print(f"  📝 Follow-up question: {state.current_question}")
+            _log.info(f"[ORCHESTRATOR]   📝 Follow-up question: {state.current_question}")
         
         return state
     
@@ -314,7 +328,7 @@ class PipelineOrchestrator:
         if state.stage != PipelineStage.GATHERING:
             raise ValueError(f"Pipeline not in gathering stage")
         
-        print(f"  💬 User response: {message[:100]}...")
+        _log.info(f"[ORCHESTRATOR]   💬 User response: {message[:100]}...")
         
         requirements = await self.context_gatherer.process({
             "message": message,
@@ -332,7 +346,7 @@ class PipelineOrchestrator:
             AgentLogger.stage_change("REQUIREMENTS_READY", f"Clarity: {requirements.get('clarity_score', 'N/A')}/10")
         else:
             state.current_question = requirements.get("follow_up_question")
-            print(f"  📝 Follow-up question: {state.current_question}")
+            _log.info(f"[ORCHESTRATOR]   📝 Follow-up question: {state.current_question}")
         
         return state
     
@@ -349,11 +363,11 @@ class PipelineOrchestrator:
         if state.stage != PipelineStage.REQUIREMENTS_READY:
             raise ValueError(f"Pipeline not in requirements_ready stage (current: {state.stage.value})")
         
-        print()
-        print("  ✅ User confirmed requirements - starting analysis pipeline")
-        print(f"     Services: {state.requirements.get('services', [])}")
-        print(f"     Functions: {state.requirements.get('functions', [])}")
-        print()
+        _log.info("[ORCHESTRATOR] " + str())
+        _log.info("[ORCHESTRATOR]   ✅ User confirmed requirements - starting analysis pipeline")
+        _log.info(f"[ORCHESTRATOR]      Services: {state.requirements.get('services', [])}")
+        _log.info(f"[ORCHESTRATOR]      Functions: {state.requirements.get('functions', [])}")
+        _log.info("[ORCHESTRATOR] " + str())
         
         # Log activity
         services = state.requirements.get('services', [])
@@ -375,7 +389,7 @@ class PipelineOrchestrator:
                 "error", "harness_check",
                 {"check": "input_contract", "errors": validation_errors}
             )
-            print(f"  [HARNESS ITEM 1] Rejected: {error_msg}")
+            _log.info(f"[ORCHESTRATOR]   [HARNESS ITEM 1] Rejected: {error_msg}")
             return state
 
         state.log_activity(f"Harness: requirements validated — services and functions exist in graph",
@@ -422,20 +436,36 @@ class PipelineOrchestrator:
                 # Build prompt with any gaps from previous iteration
                 if state.iteration > 1 and state.verification:
                     gaps_text = self.verification_agent.format_gaps(state.verification)
-                    gaps_count = len(state.verification.get('missing_paths', []))
-                    state.log_activity(f"Found {gaps_count} gaps to investigate", "warning")
-                    print(f"  🔍 Filling {gaps_count} gaps from previous iteration")
+                    gaps_count = len(state.verification.get('gaps', []))  # fixed: was 'missing_paths'
+                    state.log_activity(f"Found {gaps_count} gaps to investigate from verification", "warning")
+                    _log.warning(f"[ORCHESTRATOR]   🔍 Filling {gaps_count} gaps from previous iteration")
                     report = await self._analyze_with_gaps(state.requirements, state.report, gaps_text)
+                    
+                    # Fix 4: if the gap-fill returned a HARNESS ITEM 3 rejection
+                    # (agent used 0 tool calls), keep the previous report instead
+                    # and skip to approval — retrying won't help
+                    if report.startswith("HARNESS REJECTION:"):
+                        _log.warning(
+                            f"[ORCHESTRATOR]   ⏭ Gap-fill produced harness rejection (0 tool calls) "
+                            f"— keeping previous report and proceeding to approval"
+                        )
+                        state.log_activity(
+                            "Gap-fill agent used no graph tools — keeping best report from previous iteration",
+                            "warning"
+                        )
+                        # report stays as state.report (previous iteration's output)
+                    else:
+                        state.report = report
                 else:
                     state.log_activity("Calling LLM to analyze change impact...", "info")
                     report = await self.impact_agent.analyze_for_pipeline(
                         requirements=state.requirements
                     )
+                    state.report = report
                 
-                state.report = report
-                state.log_activity(f"Report generated: {len(report):,} chars", "success",
-                                   "stage_change", {"chars": len(report)})
-                print(f"  📊 Report generated: {len(report)} characters")
+                state.log_activity(f"Report: {len(state.report):,} chars", "success",
+                                   "stage_change", {"chars": len(state.report)})
+                _log.info(f"[ORCHESTRATOR]   📊 Report ({len(state.report)} chars)")
 
                 # HARNESS ITEM 4: Report grounding check — catch hallucinated service names
                 hallucinated = self._check_report_grounding(report)
@@ -445,7 +475,7 @@ class PipelineOrchestrator:
                         "warning", "harness_check",
                         {"check": "report_grounding", "hallucinated": hallucinated}
                     )
-                    print(f"  [HARNESS ITEM 4] Hallucinated services in report: {hallucinated}")
+                    _log.warning(f"[ORCHESTRATOR]   [HARNESS ITEM 4] Hallucinated services in report: {hallucinated}")
                     # Add as gaps so verification loop investigates
                     if state.verification is None:
                         state.verification = {}
@@ -469,7 +499,7 @@ class PipelineOrchestrator:
             except Exception as e:
                 state.stage = PipelineStage.FAILED
                 state.error = f"Analysis failed: {e}"
-                print(f"  ❌ Analysis failed: {e}")
+                _log.error(f"[ORCHESTRATOR]   ❌ Analysis failed: {e}")
                 return state
             
             # === STEP 2: VERIFICATION ===
@@ -483,7 +513,7 @@ class PipelineOrchestrator:
                 state.log_activity("Extracting symbols from report...", "info")
                 symbols = await self.verification_agent.extract_symbols(report)
                 state.log_activity(f"Found {len(symbols)} symbols to verify", "info")
-                print(f"  📝 Extracted {len(symbols)} symbols from report")
+                _log.info(f"[ORCHESTRATOR]   📝 Extracted {len(symbols)} symbols from report")
                 
                 # Verify completeness
                 state.log_activity("Querying call graph for callers...", "info")
@@ -500,7 +530,7 @@ class PipelineOrchestrator:
                     state.log_activity(f"Found {gaps_count} unverified gaps", "warning")
                 state.log_activity(f"Confidence: {confidence}", "info")
                 
-                print(f"  🔎 Verification: complete={complete}, confidence={confidence}, gaps={gaps_count}")
+                _log.warning(f"[ORCHESTRATOR]   🔎 Verification: complete={complete}, confidence={confidence}, gaps={gaps_count}")
                 
                 # Track gaps history
                 state.gaps_history.append({
@@ -510,8 +540,17 @@ class PipelineOrchestrator:
                     "confidence": confidence
                 })
                 
+                # Fix 6: keep highest-confidence report across iterations
+                _CONF_ORDER = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+                current_rank = _CONF_ORDER.get(confidence, 1)
+                best_rank = _CONF_ORDER.get(state._best_report_confidence, 0)
+                if state._best_report is None or current_rank >= best_rank:
+                    state._best_report = state.report
+                    state._best_report_confidence = confidence
+                    _log.info(f"[ORCHESTRATOR]   📈 Best report updated: confidence={confidence} (iteration {state.iteration})")
+                
             except Exception as e:
-                print(f"  ⚠️  Verification error (non-fatal): {e}")
+                _log.warning(f"[ORCHESTRATOR]   ⚠️  Verification error (non-fatal): {e}")
                 # Verification failure is non-fatal, proceed with what we have
                 state.verification = {
                     "complete": True,
@@ -551,7 +590,31 @@ class PipelineOrchestrator:
                 return state
             
             state.log_activity(f"Gaps found, continuing to iteration {state.iteration + 1}...", "warning")
-            print(f"  🔄 Gaps found, will continue to iteration {state.iteration + 1}")
+            _log.info(f"[ORCHESTRATOR]   🔄 Gaps found, will continue to iteration {state.iteration + 1}")
+            
+            # Skip retry if all gaps are unresolvable (symbol not in graph)
+            # These won't be fixed by re-running the analysis agent
+            all_gaps = state.verification.get("gaps", [])
+            unresolvable = [
+                g for g in all_gaps
+                if "not found" in g.get("evidence", "").lower()
+                or "not traceable" in g.get("evidence", "").lower()
+                or "not in graph" in g.get("evidence", "").lower()
+            ]
+            if unresolvable and len(unresolvable) == len(all_gaps):
+                _log.warning(
+                    f"[ORCHESTRATOR]   ⏭ All {len(all_gaps)} gaps are unresolvable "
+                    f"(symbols not in codegraph) — skipping retry, proceeding to approval"
+                )
+                state.log_activity(
+                    f"All {len(all_gaps)} gaps are unresolvable (symbols not in graph). "
+                    "Skipping retry — these are inferred symbols, not actual code.", "warning"
+                )
+                state.stage = PipelineStage.AWAITING_APPROVAL
+                state.updated_at = time.time()
+                _save_session(state.id, state.stage.value, state.to_dict())
+                return state
+            
             state.iteration += 1
         
         # Max iterations reached
@@ -560,6 +623,14 @@ class PipelineOrchestrator:
         AgentLogger.stage_change("AWAITING_APPROVAL", 
             f"Max iterations ({state.max_iterations}) reached, {gaps_remaining} gaps remaining")
         state.updated_at = time.time()
+        
+        # Fix 6: restore best report seen across all iterations
+        if state._best_report and state._best_report != state.report:
+            _log.info(
+                f"[ORCHESTRATOR]   📈 Restoring best report "
+                f"(confidence={state._best_report_confidence}) from earlier iteration"
+            )
+            state.report = state._best_report
         
         # Add note about max iterations
         if state.verification:
@@ -572,24 +643,23 @@ class PipelineOrchestrator:
     
     async def _analyze_with_gaps(self, requirements: dict, current_report: str, gaps_text: str) -> str:
         """Re-run analysis with specific gaps to fill."""
-        query = f"""UPDATE the following impact report to fill in the identified gaps.
-
-CURRENT REPORT:
-{current_report[:3000]}
-
-GAPS TO FILL:
-{gaps_text}
-
-INSTRUCTIONS:
-1. Use trace_call_path() to find the missing callers
-2. Add them to the appropriate Layer (1 or 2)
-3. Include WHY they are impacted and what CHANGE is needed
-4. Keep all existing entries, just ADD the missing ones
-5. Update the SUMMARY counts
-
-Output the COMPLETE updated report in the same format."""
-
-        return await self.impact_agent.analyze(query)
+        # Build enriched requirements with gap context
+        # Pass as a fresh analyze_for_pipeline call so the agent uses graph tools,
+        # not the conversational history (which causes empty responses on iteration 2+)
+        import copy
+        enriched = copy.deepcopy(requirements) if requirements else {}
+        if isinstance(enriched, dict):
+            existing_desc = enriched.get("description", "")
+            enriched["description"] = (
+                f"{existing_desc}\n\n"
+                f"GAPS TO FILL (from verification):\n{gaps_text}\n\n"
+                f"Previous report context (first 2000 chars):\n{current_report[:2000]}"
+            )
+            # Add gap-filling flag so the prompt knows this is a retry
+            enriched["_gap_fill_iteration"] = True
+        
+        _log.info(f"[ORCHESTRATOR]   🔄 Re-running analysis with gaps via analyze_for_pipeline (not conversational analyze)")
+        return await self.impact_agent.analyze_for_pipeline(requirements=enriched)
     
     async def approve(self, pipeline_id: str) -> PipelineState:
         """Approve the analysis."""
@@ -602,6 +672,26 @@ Output the COMPLETE updated report in the same format."""
         
         state.stage = PipelineStage.APPROVED
         state.updated_at = time.time()
+        
+        # ── DEMO CACHE: save approved result so next identical run is instant ─
+        if _CACHE_AVAILABLE and state.report:
+            try:
+                req = state.requirements or {}
+                label = req.get("description", "Impact analysis")[:60] if isinstance(req, dict) else str(req)[:60]
+                _get_cache().save(
+                    cache_id=pipeline_id,
+                    pipeline_type="impact",
+                    label=label,
+                    input_data=state.requirements,
+                    output_data={
+                        "report":      state.report,
+                        "report_json": state.report_json or {},
+                    },
+                )
+                _log.info(f"[CACHE] Impact analysis saved: id={pipeline_id!r} label={label!r}")
+            except Exception as _ce:
+                _log.warning(f"[CACHE] Save failed (non-fatal): {_ce}")
+        
         return state
     
     async def reject(self, pipeline_id: str, reason: str = "") -> PipelineState:

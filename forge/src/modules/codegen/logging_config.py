@@ -20,6 +20,7 @@ impl_logger = logging.getLogger("forge.codegen.implementation")
 verify_logger = logging.getLogger("forge.codegen.verification")
 orchestrator_logger = logging.getLogger("forge.codegen.orchestrator")
 coordinator_logger = logging.getLogger("forge.codegen.coordinator")
+harness_logger = logging.getLogger("forge.codegen.harness")
 
 
 class CodeGenFormatter(logging.Formatter):
@@ -137,10 +138,11 @@ setup_logging("DEBUG")
 
 __all__ = [
     "design_logger",
-    "impl_logger", 
+    "impl_logger",
     "verify_logger",
     "orchestrator_logger",
     "coordinator_logger",
+    "harness_logger",
     "setup_logging",
     "log_tool_call",
     "log_llm_call",

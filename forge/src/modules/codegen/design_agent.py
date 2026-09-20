@@ -862,17 +862,34 @@ class DesignAgent:
             parts=[types.Part(text=prompt)]
         )
         
+        import time as _t
+        _start = _t.time()
+        tool_calls = 0
+        logger.info(f"🤖 LLM: {self._agent.model}")
+        logger.debug(f"   └─ Prompt ({len(prompt)} chars): {prompt[:150].replace(chr(10),' ')!r}...")
+        
         response_text = ""
         async for event in self._runner.run_async(
             user_id="developer",
             session_id=self._session.id,
             new_message=content
         ):
+            if hasattr(event, 'tool_calls') and event.tool_calls:
+                for tc in event.tool_calls:
+                    tool_calls += 1
+                    logger.info(f"   └─ TOOL #{tool_calls}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
+            if hasattr(event, 'tool_results') and event.tool_results:
+                for tr in event.tool_results:
+                    name = tr.name if hasattr(tr, 'name') else 'unknown'
+                    result_preview = str(tr.result)[:120] if hasattr(tr, 'result') else str(tr)[:120]
+                    logger.debug(f"   └─ TOOL RESULT: {name} → {result_preview}")
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
                         response_text += part.text
         
+        duration_ms = (_t.time() - _start) * 1000
+        logger.info(f"   └─ LLM done in {duration_ms:.0f}ms | {tool_calls} tool calls | response={len(response_text)} chars")
         return response_text
     
     async def create_plan(self, impact_report: dict) -> Plan:
@@ -918,7 +935,9 @@ Description: {requirements.get('description', '')}
 
 1. First, use list_services() to see available services
 
-2. Use grep() to find existing patterns in the codebase:
+2. Use list_directory() and grep() to explore the codebase:
+   - Use list_directory() on the target service's src/ dir to see EXACTLY which directories exist
+   - If you plan to create a new file, verify its parent directory exists first
    - Search for similar functionality that might already exist
    - Search for error handling patterns
    - Search for logging patterns
@@ -1026,13 +1045,31 @@ IMPORTANT:
 - Be SPECIFIC about file paths - use actual paths from the codebase
 - Every change must have exact "after" code
 - Tasks must have unique IDs
+- BEFORE placing a new file in a directory, use list_directory() to verify that directory exists.
+  If the directory does NOT exist, place the new file in an existing directory instead (e.g. src/utils/ or src/ directly).
+  Do NOT create tasks that write to non-existent directories — the build will fail.
+- When adding INPUT VALIDATION, cover ALL forms of input:
+  * URL params (req.params.id, req.params.accountId, etc.) — validate ID formats (UUID, numeric, etc.)
+  * Request body fields (req.body.amount, req.body.data, etc.) — validate types and ranges
+  * Query string params (req.query.*) — validate presence and format
+  Do NOT validate only one input type while ignoring others.
 """
         
         # Query the agent
         response = await self._query(prompt)
         
-        # Parse the response
+        # Parse the response — retry once with explicit JSON instruction on failure
         plan = self._parse_plan_response(response, change_request)
+        
+        if not plan.tasks:
+            logger.warning("⚠️ Plan parsed but has no tasks — retrying with explicit JSON instruction")
+            retry_prompt = prompt + "\n\nYOUR PREVIOUS RESPONSE DID NOT CONTAIN VALID PLAN JSON.\nReturn ONLY a JSON code block starting with ```json and containing the plan. No other text."
+            response2 = await self._query(retry_prompt)
+            plan2 = self._parse_plan_response(response2, change_request)
+            if plan2.tasks:
+                logger.info(f"   └─ Retry succeeded: {len(plan2.tasks)} tasks")
+                return plan2
+            logger.warning("   └─ Retry also produced no tasks — proceeding with empty plan")
         
         return plan
     

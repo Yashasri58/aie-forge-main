@@ -785,6 +785,7 @@ Be thorough. Use the tools to verify everything. Don't assume - check.
         )
         
         response_text = ""
+        tool_call_count = 0
         try:
             logger.info("   └─ Calling LLM for validation...")
             
@@ -795,6 +796,15 @@ Be thorough. Use the tools to verify everything. Don't assume - check.
                 new_message=content
             ):
                 event_count += 1
+                if hasattr(event, 'tool_calls') and event.tool_calls:
+                    for tc in event.tool_calls:
+                        tool_call_count += 1
+                        logger.info(f"   └─ TOOL #{tool_call_count}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
+                if hasattr(event, 'tool_results') and event.tool_results:
+                    for tr in event.tool_results:
+                        name = tr.name if hasattr(tr, 'name') else 'unknown'
+                        result_preview = str(tr.result)[:120] if hasattr(tr, 'result') else str(tr)[:120]
+                        logger.debug(f"   └─ TOOL RESULT: {name} → {result_preview}")
                 # Log all events for debugging
                 if hasattr(event, 'content') and event.content:
                     logger.debug(f"   └─ Event {event_count}: has content, is_final={event.is_final_response()}")
@@ -806,7 +816,7 @@ Be thorough. Use the tools to verify everything. Don't assume - check.
                         if part.text:
                             response_text += part.text
             
-            logger.info(f"   └─ Total events: {event_count}, response chars: {len(response_text)}")
+            logger.info(f"   └─ Total events: {event_count}, tool calls: {tool_call_count}, response chars: {len(response_text)}")
             
             # Handle empty response - fallback to basic validation
             if not response_text.strip():

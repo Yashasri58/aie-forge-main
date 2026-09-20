@@ -197,13 +197,23 @@ class ImplementationAgent:
         )
         
         response_text = ""
+        tool_call_count = 0
         try:
-            logger.debug(f"   └─ Calling LLM...")
+            logger.info(f"   └─ Calling LLM ({model}), prompt={len(prompt)} chars...")
             async for event in runner.run_async(
                 user_id="developer",
                 session_id=session.id,
                 new_message=content
             ):
+                if hasattr(event, 'tool_calls') and event.tool_calls:
+                    for tc in event.tool_calls:
+                        tool_call_count += 1
+                        logger.info(f"   └─ TOOL #{tool_call_count}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
+                if hasattr(event, 'tool_results') and event.tool_results:
+                    for tr in event.tool_results:
+                        name = tr.name if hasattr(tr, 'name') else 'unknown'
+                        result_preview = str(tr.result)[:120] if hasattr(tr, 'result') else str(tr)[:120]
+                        logger.debug(f"   └─ TOOL RESULT: {name} → {result_preview}")
                 if event.is_final_response() and event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
@@ -214,8 +224,7 @@ class ImplementationAgent:
             
             duration_ms = int((time.time() - start_time) * 1000)
             log_task_complete(logger, task_file.task_id, "success", duration_ms)
-            logger.debug(f"   └─ Response length: {len(response_text)} chars")
-            logger.debug(f"   └─ Diff length: {len(diff)} chars")
+            logger.info(f"   └─ LLM done: {tool_call_count} tool calls, response={len(response_text)} chars, diff={len(diff)} chars")
             
             return AgentOutput(
                 task_id=task_file.task_id,
@@ -466,10 +475,13 @@ Return ONLY the corrected unified diff, no explanation.
             )
             
         except Exception as e:
+            logger.error(f"   └─ fix_diff FAILED for {task_file.task_id}: {e}", exc_info=True)
+            # Return as error status — orchestrator's stale-error detection will
+            # catch that this issue repeats and stop retrying
             return AgentOutput(
                 task_id=task_file.task_id,
                 file=task_file.file,
-                diff=previous_diff,  # Return original if fix fails
+                diff=previous_diff,  # Return original so harness can re-check it
                 status="error",
                 error_message=f"Fix failed: {e}",
             )

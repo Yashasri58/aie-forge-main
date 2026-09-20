@@ -449,3 +449,96 @@ export interface CodeGenResult {
   verification?: CodeGenVerification;
   error?: string;
 }
+
+
+// ─── Reverse Engineer Pipeline (Pipeline 3) ──────────────────────────────────
+
+/** Pipeline stage for the RE pipeline */
+export type REStage =
+  | "uploading"
+  | "parsing"
+  | "extracting"
+  | "inferring"
+  | "gap_review"
+  | "writing"
+  | "complete"
+  | "failed";
+
+/** Confidence level for a spec claim */
+export type REConfidence = "CONFIRMED" | "INFERRED" | "GAP";
+
+/** A single generated spec section */
+export interface SpecSection {
+  section_id: string;
+  title: string;
+  content_md: string;
+  confidence_score: number; // 0.0 – 1.0
+  gap_count: number;
+  generated_at: number;
+}
+
+/** Activity log entry from the pipeline */
+export interface REActivity {
+  time: number;
+  message: string;
+  level: "info" | "warning" | "error";
+  event_type: string;
+  metadata: Record<string, unknown>;
+}
+
+/** Full state of one Reverse Engineer pipeline session */
+export interface ReverseEngineerSession {
+  id: string;
+  stage: REStage;
+  created_at: number;
+  updated_at: number;
+  log_file_name: string;
+  user_comments?: string;
+
+  // Stage outputs (progressively populated)
+  extracted_facts?: {
+    service_count: number;
+    endpoint_count: number;
+    trace_count: number;
+    services: Array<{ name: string; event_count: number }>;
+    endpoints: Array<{ method: string; path_template: string }>;
+    trace_flows: Array<{ trace_id: string; scenario_name: string; outcome: string }>;
+    kafka_topics: Array<{ topic: string; producers: string[]; consumers: string[] }>;
+    resilience_patterns: Array<{ pattern_name: string; service: string }>;
+    slo_metrics: Array<{ metric_name: string; service: string; status: string }>;
+  };
+  asg?: {
+    confirmed_count: number;
+    inferred_count: number;
+    gap_count: number;
+  };
+  spec_sections: Record<string, SpecSection>;
+
+  // Progress
+  current_stage_detail: string;
+  activity_log: REActivity[];
+  error?: string;
+
+  // Convenience
+  service_count: number;
+  spec_section_count: number;
+  available_sections: string[];
+}
+
+/** All available spec section IDs */
+export const RE_SECTION_IDS = [
+  "executive_summary",
+  "service_inventory",
+  "api_catalog",
+  "business_logic",
+  "event_topology",
+  "data_model",
+  "cross_cutting",
+  "slos_and_observability",
+  "resilience_patterns",
+  "tech_stack",
+  "risks_and_gaps",
+  "confidence_report",
+] as const;
+
+export type RESectionId = typeof RE_SECTION_IDS[number];

@@ -17,6 +17,7 @@ Harness items implemented in this file:
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -24,6 +25,8 @@ from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+_log = logging.getLogger("forge.agents.impact")
 
 from .prompts import SYSTEM_INSTRUCTION
 from modules.agents.harness_utils import (
@@ -466,7 +469,7 @@ If no new impacts, state "No additional services affected" for Layer 1 and 2.
         # HARNESS ITEM 3: Verify the agent actually called graph tools
         ok, receipt_err = receipts_assert_used(min_calls=1)
         if not ok:
-            print(f"  [HARNESS ITEM 3] {receipt_err}")
+            _log.warning(f"[IMPACT]   [HARNESS ITEM 3] {receipt_err}")
             # Return a rejection message instead of a potentially hallucinated report
             return (
                 f"HARNESS REJECTION: {receipt_err}\n\n"
@@ -488,7 +491,7 @@ If no new impacts, state "No additional services affected" for Layer 1 and 2.
         # Log receipt summary for the activity log
         receipts = receipts_get()
         tool_names = [r["tool"] for r in receipts]
-        print(f"  [HARNESS] Tool receipts ({len(receipts)} calls): {tool_names}")
+        _log.warning(f"[IMPACT]   [HARNESS] Tool receipts ({len(receipts)} calls): {tool_names}")
 
         return report
     
@@ -587,21 +590,21 @@ Use tools to find all affected components, then respond with ONLY this JSON:
         """Run an interactive session."""
         await self._ensure_session()
         
-        print("=" * 60)
-        print("FORGE IMPACT AGENT")
-        print("=" * 60)
-        print(f"\nServices: {', '.join(self.services)}")
-        print(f"Symbols: {self.symbol_count}")
-        print("\nTools available:")
-        print("  - search_symbols(query)     : Find functions by name")
-        print("  - analyze_impact(symbol)    : Full impact analysis")
-        print("  - trace_call_path(symbol)   : Follow call chains")
-        print("  - get_service_topology()    : HTTP dependencies")
-        print("  - query_cypher(cypher)      : Raw Cypher queries")
-        print("\n" + "-" * 60)
-        print("Ask about code impact, dependencies, or changes.")
-        print("Type 'quit' to exit.")
-        print("-" * 60)
+        _log.info("[IMPACT] " + "=" * 60)
+        _log.info("[IMPACT] FORGE IMPACT AGENT")
+        _log.info("[IMPACT] " + "=" * 60)
+        _log.info(f"[IMPACT] \nServices: {', '.join(self.services)}")
+        _log.info(f"[IMPACT] Symbols: {self.symbol_count}")
+        _log.info("[IMPACT] \nTools available:")
+        _log.info("[IMPACT]   - search_symbols(query)     : Find functions by name")
+        _log.info("[IMPACT]   - analyze_impact(symbol)    : Full impact analysis")
+        _log.info("[IMPACT]   - trace_call_path(symbol)   : Follow call chains")
+        _log.info("[IMPACT]   - get_service_topology()    : HTTP dependencies")
+        _log.info("[IMPACT]   - query_cypher(cypher)      : Raw Cypher queries")
+        _log.info("[IMPACT] " + "-" * 60)
+        _log.info("[IMPACT] Ask about code impact, dependencies, or changes.")
+        _log.info("[IMPACT] Type 'quit' to exit.")
+        _log.info("[IMPACT] " + "-" * 60)
         
         while True:
             try:
@@ -611,17 +614,17 @@ Use tools to find all affected components, then respond with ONLY this JSON:
                     continue
                 
                 if user_input.lower() in ('quit', 'exit', 'q'):
-                    print("\nGoodbye!")
+                    _log.info("[IMPACT] \nGoodbye!")
                     break
                 
-                print("\nAgent: ", end="", flush=True)
+                _log.info("[IMPACT] Agent responding...")
                 response = await self.analyze(user_input)
                 # Handle Unicode for Windows console
                 safe_response = response.replace('\u2192', '->').replace('\u2190', '<-')
-                print(safe_response)
+                _log.info("[IMPACT] " + str(safe_response))
                 
             except KeyboardInterrupt:
-                print("\n\nInterrupted.")
+                _log.info("[IMPACT] \n\nInterrupted.")
                 break
             except Exception as e:
-                print(f"\nError: {e}")
+                _log.error(f"[IMPACT] \nError: {e}")

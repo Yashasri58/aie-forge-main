@@ -46,3 +46,11 @@ networkx>=3.2.0
 # =============================================================================
 numpy>=1.26.0
 pydantic>=2.0.0
+
+# =============================================================================
+# REVERSE ENGINEER PIPELINE (Pipeline 3)
+# =============================================================================
+# Log template mining (Drain3 streaming log parser — Stage 2)
+drain3>=0.9.11
+# File upload support for FastAPI multipart/form-data
+python-multipart>=0.0.9

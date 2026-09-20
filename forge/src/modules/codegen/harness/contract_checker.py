@@ -15,6 +15,9 @@ import re
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 
+import logging
+logger = logging.getLogger("forge.codegen.harness")
+
 from .models import (
     HarnessViolation,
     ViolationSeverity,
@@ -70,6 +73,7 @@ class ContractChecker:
         self.contracts = self._extract_contracts(plan)
         
         if not self.contracts:
+            logger.debug(f"[CONTRACT] service={service_id}: No contracts defined in plan — SKIP")
             return CheckResult(
                 check_type=CheckType.CONTRACT,
                 passed=True,
@@ -78,19 +82,36 @@ class ContractChecker:
                 skip_reason="No contracts defined in plan",
             )
         
+        logger.info(f"[CONTRACT] service={service_id}: Checking {len(self.contracts)} contracts across {len(diffs)} diffs")
+        for c in self.contracts:
+            logger.debug(f"[CONTRACT]    contract: {c.name} → {c.signature[:60]}")
+        
         for diff in diffs:
             if not self._is_javascript_file(diff.file_path):
                 continue
             
             file_violations = self._check_file_contracts(service_id, diff)
+            if file_violations:
+                logger.warning(f"[CONTRACT]    {diff.file_path}: {len(file_violations)} contract violations")
+                for v in file_violations:
+                    logger.warning(f"[CONTRACT]      line {v.line_number}: {v.description[:80]}")
+            else:
+                logger.debug(f"[CONTRACT]    {diff.file_path}: contracts OK")
             violations.extend(file_violations)
         
         # Check for missing contract implementations
-        violations.extend(self._check_missing_implementations(service_id, diffs))
+        missing = self._check_missing_implementations(service_id, diffs)
+        if missing:
+            logger.error(f"[CONTRACT]    {len(missing)} contracts NOT implemented")
+            for v in missing:
+                logger.error(f"[CONTRACT]      MISSING: {v.description[:80]}")
+        violations.extend(missing)
         
+        passed = len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0
+        logger.info(f"[CONTRACT] service={service_id}: {'PASS' if passed else 'FAIL'} — {len(violations)} total violations")
         return CheckResult(
             check_type=CheckType.CONTRACT,
-            passed=len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0,
+            passed=passed,
             violations=violations,
         )
     

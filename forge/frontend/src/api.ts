@@ -361,3 +361,111 @@ export async function getEnvVars(service?: string): Promise<EnvVarsData> {
   const res = await fetch(`/graph/enrichment/env-vars${qs}`);
   return parseJson<EnvVarsData>(res);
 }
+
+
+// ─── REVERSE ENGINEER API ─────────────────────────────────────────────────────
+
+import type { ReverseEngineerSession, SpecSection } from "./types";
+
+/** Start a reverse engineer pipeline run by uploading a log file. */
+export async function startReverseEngineer(
+  logFile: File,
+  userComments?: string
+): Promise<ReverseEngineerSession> {
+  const formData = new FormData();
+  formData.append("log_file", logFile);
+  if (userComments && userComments.trim()) {
+    formData.append("user_comments", userComments.trim());
+  }
+  const res = await fetch("/reverse-engineer/start", {
+    method: "POST",
+    body: formData,
+  });
+  return parseJson<ReverseEngineerSession>(res);
+}
+
+/** Poll the session state for progress. */
+export async function getREStatus(
+  sessionId: string
+): Promise<ReverseEngineerSession> {
+  const res = await fetch(`/reverse-engineer/${encodeURIComponent(sessionId)}`);
+  return parseJson<ReverseEngineerSession>(res);
+}
+
+/** Get extracted facts from Stage 1+2. */
+export async function getREFacts(
+  sessionId: string
+): Promise<Record<string, unknown>> {
+  const res = await fetch(
+    `/reverse-engineer/${encodeURIComponent(sessionId)}/facts`
+  );
+  return parseJson<Record<string, unknown>>(res);
+}
+
+/** Get all spec sections. */
+export async function getREAllSections(
+  sessionId: string
+): Promise<Record<string, SpecSection>> {
+  const res = await fetch(
+    `/reverse-engineer/${encodeURIComponent(sessionId)}/spec/all`
+  );
+  return parseJson<Record<string, SpecSection>>(res);
+}
+
+/** Get a single spec section by ID. */
+export async function getRESection(
+  sessionId: string,
+  sectionId: string
+): Promise<SpecSection> {
+  const res = await fetch(
+    `/reverse-engineer/${encodeURIComponent(sessionId)}/spec/${encodeURIComponent(sectionId)}`
+  );
+  return parseJson<SpecSection>(res);
+}
+
+/** Download all spec sections as a ZIP. Returns the blob URL. */
+export async function downloadRESpec(sessionId: string): Promise<string> {
+  const res = await fetch(
+    `/reverse-engineer/${encodeURIComponent(sessionId)}/spec/download`
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { detail?: string }).detail ?? `${res.status} ${res.statusText}`
+    );
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+
+
+// ─── CACHE API ───────────────────────────────────────────────────────────────
+
+export interface CacheEntry {
+  id: string;
+  pipeline_type: "impact" | "codegen" | "reverse_engineer";
+  label: string;
+  created_at: number;
+  last_used_at: number;
+  use_count: number;
+  has_output: boolean;
+}
+
+export async function listCache(type?: string): Promise<CacheEntry[]> {
+  const url = type ? `/cache?type=${encodeURIComponent(type)}` : "/cache";
+  const res = await fetch(url);
+  return parseJson<CacheEntry[]>(res);
+}
+
+export async function deleteCacheEntry(id: string): Promise<void> {
+  await fetch(`/cache/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function renameCacheEntry(id: string, label: string): Promise<void> {
+  await fetch(`/cache/${encodeURIComponent(id)}/label`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  });
+}

@@ -17,6 +17,9 @@ import re
 from typing import List, Set, Dict, Optional, Tuple
 from pathlib import Path
 
+import logging
+logger = logging.getLogger("forge.codegen.harness")
+
 from .models import (
     HarnessViolation,
     ViolationSeverity,
@@ -68,6 +71,21 @@ class HallucinationDetector:
             # Common library methods
             'json', 'send', 'status', 'get', 'post', 'put', 'delete', 'use',
             'listen', 'route', 'query', 'body', 'params', 'headers',
+            # JS global constructors and builtins (commonly flagged as false positives)
+            'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError',
+            'Promise', 'Array', 'Object', 'String', 'Number', 'Boolean',
+            'Date', 'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol',
+            'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'isInteger',
+            'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
+            'JSON', 'Math', 'console', 'process', 'Buffer', 'global',
+            'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+            'require', 'module', 'exports', '__dirname', '__filename',
+            # Express middleware patterns
+            'next', 'router', 'app', 'req', 'res', 'middleware',
+            'Router', 'static', 'urlencoded', 'text', 'raw',
+            # Node.js built-in module exports commonly used
+            'readFile', 'writeFile', 'readFileSync', 'writeFileSync',
+            'existsSync', 'mkdirSync', 'join', 'resolve', 'dirname', 'basename',
         }
     
     def check(self, service_id: str, diffs: List[FileDiff]) -> CheckResult:
@@ -83,22 +101,45 @@ class HallucinationDetector:
         """
         violations = []
         
+        js_diffs = [d for d in diffs if self._is_javascript_file(d.file_path)]
+        logger.info(f"[HALLUCINATION] service={service_id}: Checking {len(js_diffs)}/{len(diffs)} JS/TS files for invented symbols")
+        
         for diff in diffs:
             if not self._is_javascript_file(diff.file_path):
                 continue
             
             # Check for new function calls that might be hallucinated
-            violations.extend(self._check_function_calls(service_id, diff))
+            fn_violations = self._check_function_calls(service_id, diff)
+            if fn_violations:
+                logger.warning(f"[HALLUCINATION]    {diff.file_path}: {len(fn_violations)} suspect function calls")
+                for v in fn_violations:
+                    logger.warning(f"[HALLUCINATION]      line {v.line_number}: {v.description[:80]}")
+            violations.extend(fn_violations)
             
             # Check for hallucinated constants/enums
-            violations.extend(self._check_constants(service_id, diff))
+            const_violations = self._check_constants(service_id, diff)
+            if const_violations:
+                logger.warning(f"[HALLUCINATION]    {diff.file_path}: {len(const_violations)} suspect constants/enums")
+                for v in const_violations:
+                    logger.warning(f"[HALLUCINATION]      line {v.line_number}: {v.description[:80]}")
+            violations.extend(const_violations)
             
             # Check cross-service calls
-            violations.extend(self._check_service_calls(service_id, diff))
+            svc_violations = self._check_service_calls(service_id, diff)
+            if svc_violations:
+                logger.warning(f"[HALLUCINATION]    {diff.file_path}: {len(svc_violations)} suspect cross-service calls")
+                for v in svc_violations:
+                    logger.warning(f"[HALLUCINATION]      line {v.line_number}: {v.description[:80]}")
+            violations.extend(svc_violations)
+            
+            if not fn_violations and not const_violations and not svc_violations:
+                logger.debug(f"[HALLUCINATION]    {diff.file_path}: clean")
         
+        passed = len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0
+        logger.info(f"[HALLUCINATION] service={service_id}: {'PASS' if passed else 'FAIL'} — {len(violations)} suspect symbols found")
         return CheckResult(
             check_type=CheckType.HALLUCINATION,
-            passed=len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0,
+            passed=passed,
             violations=violations,
         )
     

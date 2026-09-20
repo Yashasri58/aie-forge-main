@@ -7,6 +7,7 @@ All API endpoints organized by feature:
 - graph_explorer: Interactive graph visualization
 - pipeline: Multi-agent impact analysis pipeline
 - codegen: Code generation from approved impact reports
+- reverse_engineer: Reverse engineering pipeline from log files (Pipeline 3)
 """
 
 from .health import router as health_router, set_dependencies as set_health_deps
@@ -21,16 +22,24 @@ from ..codegen_routes import (
     set_pipeline_orchestrator as set_codegen_pipeline_orchestrator,
 )
 
+# Import reverse engineer routes from parent package
+from ..re_routes import (
+    router as re_router,
+    set_re_orchestrator,
+)
+
 __all__ = [
     "health_router",
-    "impact_router", 
+    "impact_router",
     "graph_router",
     "pipeline_router",
     "codegen_router",
+    "re_router",
     "set_health_deps",
     "set_impact_deps",
     "set_graph_store",
     "set_pipeline_orchestrator",
     "set_codegen_orchestrator",
     "set_codegen_pipeline_orchestrator",
+    "set_re_orchestrator",
 ]

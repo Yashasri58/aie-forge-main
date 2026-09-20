@@ -235,13 +235,14 @@ class ImportResolver:
         
         for ext in extensions:
             # Check if file exists on disk
-            full_path = self.services_path / service_id / str(resolved) + ext
+            # Use Path concatenation correctly — can't do WindowsPath + str
+            full_path = Path(str(self.services_path / service_id / str(resolved)) + ext)
             if full_path.exists():
                 return None
             
             # Check relative to service root
             service_root = self.services_path / service_id
-            test_path = service_root / (str(resolved) + ext).lstrip('/')
+            test_path = Path(str(service_root / (str(resolved).lstrip('/'))) + ext)
             if test_path.exists():
                 return None
         

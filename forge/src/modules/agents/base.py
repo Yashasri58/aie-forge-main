@@ -9,12 +9,16 @@ from typing import Optional
 import json
 import re
 import time
+import logging
 from datetime import datetime
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+# Module-level logger for all agents
+_agent_log = logging.getLogger("forge.agents")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -246,12 +250,15 @@ class BaseADKAgent(ABC):
         # Log agent start
         start_time = time.time()
         self.logger.agent_start(self.name, prompt)
+        _agent_log.info(f"[{self.name.upper()}] >> LLM CALL start | model={self.model} | prompt={len(prompt)} chars")
+        _agent_log.debug(f"[{self.name.upper()}]    prompt preview: {prompt[:200].replace(chr(10), ' ')!r}")
         
         content = types.Content(
             role='user',
             parts=[types.Part(text=prompt)]
         )
         
+        tool_call_count = 0
         response_text = ""
         async for event in self.runner.run_async(
             user_id="pipeline",
@@ -261,18 +268,23 @@ class BaseADKAgent(ABC):
             # Log tool calls if present
             if hasattr(event, 'tool_calls') and event.tool_calls:
                 for tc in event.tool_calls:
+                    tool_call_count += 1
                     tool_start = time.time()
                     self.logger.tool_call(self.name, tc.name, tc.args or {})
+                    _agent_log.info(f"[{self.name.upper()}]    TOOL #{tool_call_count}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
             
             # Log tool results
             if hasattr(event, 'tool_results') and event.tool_results:
                 for tr in event.tool_results:
+                    result_str = str(tr.result)[:500] if hasattr(tr, 'result') else str(tr)[:500]
+                    tool_name = tr.name if hasattr(tr, 'name') else 'unknown'
                     self.logger.tool_result(
                         self.name, 
-                        tr.name if hasattr(tr, 'name') else 'unknown',
-                        str(tr.result)[:500] if hasattr(tr, 'result') else str(tr)[:500],
+                        tool_name,
+                        result_str,
                         0  # Duration not available here
                     )
+                    _agent_log.debug(f"[{self.name.upper()}]    TOOL RESULT: {tool_name} → {result_str[:120]}")
             
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
@@ -282,6 +294,8 @@ class BaseADKAgent(ABC):
         # Log final response
         duration_ms = (time.time() - start_time) * 1000
         self.logger.agent_response(self.name, response_text, duration_ms)
+        _agent_log.info(f"[{self.name.upper()}] << LLM CALL done | {duration_ms:.0f}ms | {tool_call_count} tool calls | response={len(response_text)} chars")
+        _agent_log.debug(f"[{self.name.upper()}]    response preview: {response_text[:200].replace(chr(10), ' ')!r}")
         
         return response_text
     

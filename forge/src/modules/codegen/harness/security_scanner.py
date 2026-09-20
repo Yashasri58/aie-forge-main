@@ -20,6 +20,9 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
+import logging
+logger = logging.getLogger("forge.codegen.harness")
+
 from .models import (
     HarnessViolation,
     ViolationSeverity,
@@ -259,16 +262,30 @@ class SecurityScanner:
         """
         violations = []
         
+        code_diffs = [d for d in diffs if self._is_code_file(d.file_path)]
+        logger.info(f"[SECURITY] service={service_id}: Scanning {len(code_diffs)}/{len(diffs)} files ({len(self.patterns)} patterns)")
+        
         for diff in diffs:
             if not self._is_code_file(diff.file_path):
                 continue
             
             file_violations = self._scan_file(service_id, diff)
+            if file_violations:
+                errors = [v for v in file_violations if v.severity == ViolationSeverity.ERROR]
+                warns  = [v for v in file_violations if v.severity != ViolationSeverity.ERROR]
+                logger.warning(f"[SECURITY]    {diff.file_path}: {len(errors)} errors, {len(warns)} warnings")
+                for v in file_violations:
+                    lvl = logger.error if v.severity == ViolationSeverity.ERROR else logger.warning
+                    lvl(f"[SECURITY]      [{v.severity.value}] line {v.line_number} — {v.name}: {v.description[:80]}")
+            else:
+                logger.debug(f"[SECURITY]    {diff.file_path}: clean")
             violations.extend(file_violations)
         
+        passed = len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0
+        logger.info(f"[SECURITY] service={service_id}: {'PASS' if passed else 'FAIL'} — {len(violations)} findings")
         return CheckResult(
             check_type=CheckType.SECURITY,
-            passed=len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0,
+            passed=passed,
             violations=violations,
         )
     

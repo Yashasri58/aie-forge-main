@@ -17,6 +17,9 @@ import os
 from typing import List, Optional
 from pathlib import Path
 
+import logging
+logger = logging.getLogger("forge.codegen.harness")
+
 from .models import (
     HarnessViolation,
     ViolationSeverity,
@@ -52,17 +55,31 @@ class SyntaxChecker:
         """
         violations = []
         
+        js_diffs = [d for d in diffs if self._is_javascript_file(d.file_path)]
+        logger.info(f"[SYNTAX] service={service_id}: Checking {len(js_diffs)}/{len(diffs)} JS/TS files")
+        
         for diff in diffs:
             # Only check JS/TS files
             if not self._is_javascript_file(diff.file_path):
                 continue
             
+            method = "node" if self._is_node_available() else "structural"
+            logger.debug(f"[SYNTAX]    {diff.file_path} via {method} ({len(diff.modified_content or '')} chars)")
             file_violations = self._check_file(service_id, diff)
+            if file_violations:
+                errors = [v for v in file_violations if v.severity == ViolationSeverity.ERROR]
+                logger.error(f"[SYNTAX]    {diff.file_path}: {len(errors)} errors")
+                for v in errors:
+                    logger.error(f"[SYNTAX]      line {v.line_number}: {v.description}")
+            else:
+                logger.debug(f"[SYNTAX]    {diff.file_path}: OK")
             violations.extend(file_violations)
         
+        passed = len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0
+        logger.info(f"[SYNTAX] service={service_id}: {'PASS' if passed else 'FAIL'} — {len(violations)} violations")
         return CheckResult(
             check_type=CheckType.SYNTAX,
-            passed=len([v for v in violations if v.severity == ViolationSeverity.ERROR]) == 0,
+            passed=passed,
             violations=violations,
         )
     

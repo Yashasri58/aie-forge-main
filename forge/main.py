@@ -31,13 +31,17 @@ from interfaces.api.routes import (
     graph_router,
     pipeline_router,
     codegen_router,
+    re_router,
     set_health_deps,
     set_impact_deps,
     set_graph_store,
     set_pipeline_orchestrator,
     set_codegen_orchestrator,
     set_codegen_pipeline_orchestrator,
+    set_re_orchestrator,
 )
+from interfaces.api.cache_routes import router as cache_router, set_cache
+from modules.cache.demo_cache import get_cache
 
 
 # =============================================================================
@@ -49,6 +53,7 @@ _agent = None
 _tools = None
 _orchestrator = None
 _codegen_orchestrator = None
+_re_orchestrator = None
 
 
 # =============================================================================
@@ -58,7 +63,7 @@ _codegen_orchestrator = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and cleanup resources."""
-    global _store, _agent, _tools, _orchestrator, _codegen_orchestrator
+    global _store, _agent, _tools, _orchestrator, _codegen_orchestrator, _re_orchestrator
     
     # Find services directory
     services_path = Path(__file__).parent / ".." / "services"
@@ -196,6 +201,24 @@ async def lifespan(app: FastAPI):
             if _orchestrator:
                 set_codegen_pipeline_orchestrator(_orchestrator)
     
+    # Initialize Reverse Engineer pipeline (always available — no graph store needed)
+    try:
+        from modules.reverse_engineer import REOrchestrator
+        _re_orchestrator = REOrchestrator()
+        set_re_orchestrator(_re_orchestrator)
+        print(f"Reverse Engineer Pipeline ready")
+    except Exception as re_err:
+        print(f"WARNING: Could not initialize Reverse Engineer pipeline: {re_err}")
+    
+    # Demo cache
+    try:
+        _demo_cache = get_cache()
+        set_cache(_demo_cache)
+        stats = _demo_cache.stats()
+        print(f"Demo cache ready — {stats['total']} entries ({stats['by_type']})")
+    except Exception as cache_err:
+        print(f"WARNING: Could not initialize demo cache: {cache_err}")
+    
     yield
     
     # Cleanup
@@ -248,6 +271,8 @@ app.include_router(impact_router)
 app.include_router(graph_router)
 app.include_router(pipeline_router)
 app.include_router(codegen_router)
+app.include_router(re_router)
+app.include_router(cache_router)
 
 
 # =============================================================================
@@ -284,7 +309,7 @@ if _has_frontend:
             raise HTTPException(status_code=404, detail="Static file not found")
         
         # Don't serve index.html for API paths - let them 404
-        api_prefixes = ("health", "impact", "graph", "pipeline/", "codegen/", "api", "docs", "openapi", "redoc")
+        api_prefixes = ("health", "impact", "graph", "pipeline/", "codegen/", "reverse-engineer/", "api", "docs", "openapi", "redoc")
         
         if path.startswith(api_prefixes):
             from fastapi import HTTPException

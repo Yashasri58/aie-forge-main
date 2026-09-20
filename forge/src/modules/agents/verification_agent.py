@@ -9,8 +9,11 @@ Harness items implemented in this file:
 """
 
 import time as _time
+import logging
 from .base import BaseADKAgent
 from .harness_utils import receipts_log as _log_receipt
+
+_log = logging.getLogger("forge.agents.verification")
 
 
 # Module-level tools instance
@@ -278,7 +281,7 @@ Report any gaps as JSON."""
 
         if len(symbols) > 0 and len(trace_receipts) == 0:
             # Agent claimed to verify without using any tools — override
-            print(f"  [HARNESS ITEM 5] VerificationAgent returned verdict without tool calls — overriding to LOW confidence")
+            _log.warning("[VERIFICATION] [HARNESS ITEM 5] VerificationAgent returned verdict without tool calls — overriding to LOW confidence")
             return {
                 "complete": False,
                 "confidence": "LOW",
@@ -299,7 +302,7 @@ Report any gaps as JSON."""
                 ),
             }
 
-        print(f"  [HARNESS ITEM 5] Verification receipts: {len(trace_receipts)} trace calls confirmed")
+        _log.info(f"[VERIFICATION] [HARNESS ITEM 5] Verification receipts: {len(trace_receipts)} trace calls confirmed")
 
         return {
             "complete": result.get("complete", False),

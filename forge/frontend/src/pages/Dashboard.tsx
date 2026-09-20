@@ -10,10 +10,13 @@ import {
   Zap,
   ExternalLink,
   HelpCircle,
+  Database,
+  Trash2,
+  Clock,
 } from "lucide-react";
 import { Page, Card, StatCard, Button, Badge, StatusDot, Logo } from "../components/ui";
 import HowForgeWorks from "../components/HowForgeWorks";
-import { getGraphStats } from "../api";
+import { getGraphStats, listCache, deleteCacheEntry, type CacheEntry } from "../api";
 
 interface ServiceOverview {
   id: string;
@@ -29,10 +32,26 @@ export default function Dashboard() {
   const [services, setServices] = useState<ServiceOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
 
   useEffect(() => {
     loadData();
+    loadCache();
   }, []);
+
+  async function loadCache() {
+    try {
+      const entries = await listCache();
+      setCacheEntries(entries);
+    } catch {
+      // cache unavailable — not critical
+    }
+  }
+
+  async function handleDeleteCache(id: string) {
+    await deleteCacheEntry(id);
+    setCacheEntries(prev => prev.filter(e => e.id !== id));
+  }
 
   async function loadData() {
     try {
@@ -249,9 +268,96 @@ export default function Dashboard() {
           </Card>
         </motion.div>
 
-        {/* CTA Button */}
+        {/* Past Requests & Results panel */}
+        {cacheEntries.length > 0 && (
+          <motion.div
+            className="mt-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Database size={16} className="text-[var(--color-accent)]" />
+                <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  Past Requests & Results
+                </h2>
+                <Badge variant="accent">{cacheEntries.length}</Badge>
+              </div>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                Click to view details
+              </span>
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="divide-y divide-[var(--color-glass-border)]">
+                {cacheEntries.map((entry) => {
+                  const typeColors: Record<string, string> = {
+                    impact: "text-blue-400",
+                    codegen: "text-green-400",
+                    reverse_engineer: "text-purple-400",
+                  };
+                  const typeLabels: Record<string, string> = {
+                    impact: "Impact",
+                    codegen: "CodeGen",
+                    reverse_engineer: "RE",
+                  };
+                  const ago = Math.round((Date.now() / 1000 - entry.last_used_at) / 60);
+                  const agoStr = ago < 60 ? `${ago}m ago` : `${Math.round(ago/60)}h ago`;
+
+                  return (
+                    <div
+                      key={entry.id}
+                      onClick={() => navigate(`/history/${entry.id}`)}
+                      className="flex items-center gap-4 px-4 py-3 hover:bg-[var(--color-glass-bg)] transition-colors group cursor-pointer"
+                    >
+                      {/* Type badge */}
+                      <span className={`text-xs font-mono font-bold w-16 shrink-0 ${typeColors[entry.pipeline_type] || "text-[var(--color-text-muted)]"}`}>
+                        {typeLabels[entry.pipeline_type] || entry.pipeline_type}
+                      </span>
+
+                      {/* Label */}
+                      <span className="flex-1 text-sm text-[var(--color-text-primary)] truncate group-hover:text-[var(--color-accent)] transition-colors">
+                        {entry.label}
+                      </span>
+
+                      {/* Use count */}
+                      {entry.use_count > 0 && (
+                        <span className="text-xs text-[var(--color-text-muted)] shrink-0">
+                          viewed {entry.use_count}×
+                        </span>
+                      )}
+
+                      {/* Last used */}
+                      <span className="text-xs text-[var(--color-text-muted)] shrink-0 flex items-center gap-1">
+                        <Clock size={11} />
+                        {agoStr}
+                      </span>
+
+                      {/* Arrow hint */}
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-accent)] shrink-0 text-xs">
+                        →
+                      </span>
+
+                      {/* Delete */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCache(entry.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-red-400 shrink-0"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* CTA Buttons */}
         <motion.div
-          className="flex justify-center pt-8"
+          className="flex flex-col sm:flex-row justify-center gap-4 pt-8"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
@@ -264,6 +370,16 @@ export default function Dashboard() {
             className="gradient-border"
           >
             Make Changes to Codebase
+            <ArrowRight size={18} />
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={() => navigate("/reverse-engineer")}
+            icon={<span className="text-base">🔍</span>}
+          >
+            Reverse Engineer from Logs
             <ArrowRight size={18} />
           </Button>
         </motion.div>

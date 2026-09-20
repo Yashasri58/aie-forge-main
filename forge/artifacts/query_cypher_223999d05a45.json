@@ -1,0 +1,197 @@
+{
+  "query": "MATCH (s:Service)-[:CONTAINS]->(sym:Symbol) WHERE s.name = 'fx-service' RETURN sym.name, sym.kind, sym.file, sym.start_line",
+  "results": [
+    {
+      "sym.name": "index",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "database",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "getDatabase",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "initializeDatabase",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "seedRates",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "rateRepository",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "RateRepository",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findAll",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByPair",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByFromCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".updateRate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".createRate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "fx",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "conversionService",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "ConversionService",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAllRates",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getRate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".convert",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getRatesForCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "currencyValidator",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidAmount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "normalizeCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "getSupportedCurrencies",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidCurrencyPair",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "rateCalculator",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "roundToDecimal",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "applyMarkup",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "calculateMarkupAmount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "calculateInverseRate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "calculateMidMarketRate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "calculateRateDifference",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    }
+  ]
+}
