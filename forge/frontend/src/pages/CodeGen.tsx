@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -56,6 +56,12 @@ export default function CodeGen() {
   const [starting, setStarting] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("plan");
   const [error, setError] = useState<string | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll log
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [state?.activity_log?.length]);
 
   // Start code generation or load existing state
   useEffect(() => {
@@ -395,6 +401,41 @@ export default function CodeGen() {
                   </li>
                 )}
               </ul>
+            </Card>
+          )}
+
+          {/* Live Activity Log */}
+          {state.activity_log && state.activity_log.length > 0 && (
+            <Card className="flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-1 pb-2 border-b border-[var(--color-glass-border)]">
+                <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Activity</h3>
+                <div className="flex items-center gap-1.5">
+                  {!isTerminal && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
+                  )}
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {isTerminal ? "Done" : "Live"}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-1 max-h-48 overflow-y-auto pt-2 font-mono text-xs" ref={logEndRef as React.RefObject<HTMLDivElement>}>
+                {state.activity_log.map((entry: { time: number; message: string; level: string }, i: number) => {
+                  const ts = new Date(entry.time * 1000).toLocaleTimeString("en", {
+                    hour: "2-digit", minute: "2-digit", second: "2-digit",
+                  });
+                  const color =
+                    entry.level === "success" ? "text-[var(--color-success)]"
+                    : entry.level === "error" ? "text-[var(--color-error)]"
+                    : entry.level === "warning" ? "text-[var(--color-warning)]"
+                    : "text-[var(--color-text-muted)]";
+                  return (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-[var(--color-text-muted)] shrink-0 opacity-50">{ts}</span>
+                      <span className={color}>{entry.message}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </Card>
           )}
 
