@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Forge — Impact Analyst</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #21253a;
+      --border: #2a2d3e;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --green: #10b981;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --panel-w: 340px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      height: 52px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    header .badge { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; }
+    header nav { margin-left: auto; display: flex; gap: 4px; }
+    header nav a {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      text-decoration: none;
+      color: var(--muted);
+      transition: background 0.15s;
+    }
+    header nav a:hover { background: var(--border); color: var(--text); }
+    header nav a.active { background: var(--accent); color: #fff; }
+
+    /* ── WORKSPACE ── */
+    .workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── LEFT: REQUIREMENTS INPUT ── */
+    #req-panel {
+      width: var(--panel-w);
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    #req-panel header.panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      background: transparent;
+      height: auto;
+      display: block;
+    }
+    #req-panel header.panel-header small {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    #req-form {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    textarea, input[type=text] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 12px;
+      resize: vertical;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    textarea:focus, input[type=text]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    textarea { min-height: 120px; }
+
+    .btn-primary {
+      padding: 10px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-ghost:hover { background: var(--border); color: var(--text); }
+
+    /* ── MIDDLE: CHAT ── */
+    #chat-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #chat-panel header.panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #session-badge {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: monospace;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    #btn-new-session {
+      margin-left: auto;
+    }
+
+    /* chat messages */
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 90%;
+    }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.assistant { align-self: flex-start; }
+
+    .msg-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .message.user .msg-avatar { background: var(--accent); }
+    .message.assistant .msg-avatar { background: var(--surface2); border: 1px solid var(--border); }
+
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .message.user .msg-bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .message.assistant .msg-bubble {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* typing indicator */
+    .message.typing .msg-bubble {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      padding: 14px;
+    }
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      animation: bounce 1.2s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    /* chat input */
+    #chat-input-area {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #chat-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 12px;
+      resize: none;
+      font-family: inherit;
+      min-height: 40px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    #chat-input:focus { outline: none; border-color: var(--accent); }
+
+    #btn-send {
+      padding: 10px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 20px;
+      cursor: pointer;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #btn-send:hover { background: var(--accent2); }
+    #btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── RIGHT: IMPACT RESULTS ── */
+    #impact-panel {
+      width: var(--panel-w);
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #impact-panel header.panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      background: transparent;
+      height: auto;
+      display: block;
+    }
+    #impact-panel header.panel-header small {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    #impact-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    /* empty state */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 24px;
+    }
+    .empty-state .icon { font-size: 40px; opacity: 0.4; }
+
+    /* service card */
+    .service-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .service-card .svc-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .svc-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+    .svc-name { font-size: 13px; font-weight: 600; }
+    .risk-badge {
+      margin-left: auto;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .risk-HIGH   { background: #ef444422; color: var(--red);    border: 1px solid #ef444433; }
+    .risk-MEDIUM { background: #f59e0b22; color: var(--yellow); border: 1px solid #f59e0b33; }
+    .risk-LOW    { background: #10b98122; color: var(--green);  border: 1px solid #10b98133; }
+
+    .svc-meta { font-size: 11px; color: var(--muted); line-height: 1.6; }
+
+    /* summary section */
+    .summary-section {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+    .summary-section strong { color: var(--text); display: block; margin-bottom: 4px; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────── -->
+<header>
+  <span class="logo">⚡ Forge</span>
+  <span class="badge">Impact Analyst</span>
+  <nav>
+    <a href="/">Graph Explorer</a>
+    <a href="/analyst" class="active">Impact Analyst</a>
+  </nav>
+</header>
+
+<!-- ── WORKSPACE ─────────────────────────────── -->
+<div class="workspace">
+
+  <!-- LEFT: requirements panel -->
+  <div id="req-panel">
+    <header class="panel-header">
+      New Analysis
+      <small>Describe the change or requirement</small>
+    </header>
+    <div id="req-form">
+      <div>
+        <label for="req-title">Change title (optional)</label>
+        <input type="text" id="req-title" placeholder="e.g. Add 2FA to checkout flow" />
+      </div>
+      <div>
+        <label for="req-text">Requirements / description</label>
+        <textarea id="req-text" placeholder="Describe what you want to change or build. Be specific about which functions, services, or APIs are involved.
+
+Example:
+We want to add currency conversion to the payment processor. The validatePayment function needs to accept a currency parameter and convert to USD before processing."></textarea>
+      </div>
+      <button class="btn-primary" id="btn-submit">
+        <span>🚀</span> Analyse Impact
+      </button>
+      <button class="btn-ghost" id="btn-example">Load example</button>
+    </div>
+  </div>
+
+  <!-- MIDDLE: chat panel -->
+  <div id="chat-panel">
+    <header class="panel-header">
+      Conversation
+      <span id="session-badge">No session</span>
+      <button class="btn-ghost" id="btn-new-session" style="font-size:11px">+ New session</button>
+    </header>
+
+    <div id="chat-messages">
+      <div class="empty-state" id="chat-empty">
+        <div class="icon">💬</div>
+        <div>Submit requirements on the left to start a conversation with the Impact Agent.</div>
+      </div>
+    </div>
+
+    <div id="chat-input-area">
+      <textarea id="chat-input" placeholder="Ask a follow-up question…" rows="1"></textarea>
+      <button id="btn-send" disabled title="Send">➤</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: impact results -->
+  <div id="impact-panel">
+    <header class="panel-header">
+      Impacted Services
+      <small>Updated as the agent analyses your change</small>
+    </header>
+    <div id="impact-body">
+      <div class="empty-state" id="impact-empty">
+        <div class="icon">🎯</div>
+        <div>Impacted services will appear here after analysis.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+const API = '';
+let sessionId = null;
+let isWaiting  = false;
+
+// ═══════════════════════════════════════════════════════════════════
+// ELEMENTS
+// ═══════════════════════════════════════════════════════════════════
+const reqText       = document.getElementById('req-text');
+const reqTitle      = document.getElementById('req-title');
+const btnSubmit     = document.getElementById('btn-submit');
+const btnExample    = document.getElementById('btn-example');
+const btnNewSession = document.getElementById('btn-new-session');
+const chatMessages  = document.getElementById('chat-messages');
+const chatEmpty     = document.getElementById('chat-empty');
+const chatInput     = document.getElementById('chat-input');
+const btnSend       = document.getElementById('btn-send');
+const sessionBadge  = document.getElementById('session-badge');
+const impactBody    = document.getElementById('impact-body');
+const impactEmpty   = document.getElementById('impact-empty');
+
+// ═══════════════════════════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════════════════════════
+btnSubmit.onclick = () => submitRequirements();
+
+btnExample.onclick = () => {
+  reqTitle.value = 'Add currency conversion to payment flow';
+  reqText.value = `We need to add multi-currency support to the payment processor service.
+
+The validatePayment function currently assumes all amounts are in USD. We want it to accept a currency parameter and convert to USD before processing.
+
+The processPayment function also needs updating to log the original currency alongside the converted amount.
+
+Impact on downstream services (notification-service, audit-service) is unknown.`;
+};
+
+btnNewSession.onclick = () => {
+  if (sessionId) {
+    fetch(`${API}/impact/chat/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+  }
+  resetSession();
+};
+
+btnSend.onclick = () => sendFollowUp();
+chatInput.onkeydown = (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendFollowUp();
+  }
+};
+
+// auto-resize textarea
+chatInput.oninput = () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// SUBMIT REQUIREMENTS → start session
+// ═══════════════════════════════════════════════════════════════════
+async function submitRequirements() {
+  const text = reqText.value.trim();
+  if (!text) return;
+
+  const title = reqTitle.value.trim();
+  const message = title
+    ? `## ${title}\n\n${text}`
+    : text;
+
+  // Reset session if there was one
+  if (sessionId) {
+    fetch(`${API}/impact/chat/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+    sessionId = null;
+  }
+
+  // Clear chat
+  chatEmpty.style.display = 'none';
+  chatMessages.innerHTML = '';
+  chatMessages.appendChild(chatEmpty); // keep in DOM but hidden
+
+  // Show user message
+  appendMessage('user', message);
+
+  await sendToAgent(message, null);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FOLLOW-UP MESSAGE
+// ═══════════════════════════════════════════════════════════════════
+async function sendFollowUp() {
+  const text = chatInput.value.trim();
+  if (!text || isWaiting || !sessionId) return;
+
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  appendMessage('user', text);
+  await sendToAgent(text, sessionId);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CORE: SEND TO AGENT
+// ═══════════════════════════════════════════════════════════════════
+async function sendToAgent(message, sid) {
+  setWaiting(true);
+  const typingId = appendTyping();
+
+  try {
+    const res = await fetch(`${API}/impact/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, session_id: sid }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      removeTyping(typingId);
+      appendMessage('assistant', `⚠️ Error: ${err.detail || 'Request failed'}`);
+      return;
+    }
+
+    const data = await res.json();
+    sessionId = data.session_id;
+    sessionBadge.textContent = sessionId.slice(0, 8) + '…';
+    btnSend.disabled = false;
+
+    removeTyping(typingId);
+    appendMessage('assistant', data.message);
+
+    // Update impact panel
+    if (data.impacted_services?.length) {
+      renderImpactedServices(data.impacted_services, message);
+    }
+
+  } catch(e) {
+    removeTyping(typingId);
+    appendMessage('assistant', `⚠️ Network error: ${e.message}`);
+  } finally {
+    setWaiting(false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CHAT MESSAGE HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function appendMessage(role, content) {
+  chatEmpty.style.display = 'none';
+
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+  div.innerHTML = `
+    <div class="msg-avatar">${role === 'user' ? '👤' : '🤖'}</div>
+    <div class="msg-bubble">${escapeHtml(content)}</div>
+  `;
+  chatMessages.appendChild(div);
+  scrollChat();
+  return div;
+}
+
+function appendTyping() {
+  const id = 'typing-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'message assistant typing';
+  div.id = id;
+  div.innerHTML = `
+    <div class="msg-avatar">🤖</div>
+    <div class="msg-bubble">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    </div>
+  `;
+  chatMessages.appendChild(div);
+  scrollChat();
+  return id;
+}
+
+function removeTyping(id) {
+  document.getElementById(id)?.remove();
+}
+
+function scrollChat() {
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMPACT PANEL
+// ═══════════════════════════════════════════════════════════════════
+async function renderImpactedServices(serviceNames, originalQuery) {
+  impactEmpty.style.display = 'none';
+  impactBody.innerHTML = '';
+
+  // Summary card
+  const summary = document.createElement('div');
+  summary.className = 'summary-section';
+  summary.innerHTML = `<strong>📊 Analysis Summary</strong>${serviceNames.length} service(s) potentially impacted based on the agent's analysis.`;
+  impactBody.appendChild(summary);
+
+  // Fetch full impact for each mentioned service
+  for (const name of serviceNames) {
+    const card = document.createElement('div');
+    card.className = 'service-card';
+    card.innerHTML = `
+      <div class="svc-header">
+        <div class="svc-dot"></div>
+        <span class="svc-name">${escapeHtml(name)}</span>
+        <span class="risk-badge risk-MEDIUM" id="risk-${name}">checking…</span>
+      </div>
+      <div class="svc-meta" id="meta-${name}">Loading details…</div>
+    `;
+    impactBody.appendChild(card);
+
+    // fetch impact details async
+    fetchServiceImpact(name);
+  }
+}
+
+async function fetchServiceImpact(serviceName) {
+  try {
+    const r = await fetch(`${API}/impact/topology?service=${encodeURIComponent(serviceName)}`);
+    const d = await r.json();
+
+    const riskEl = document.getElementById(`risk-${serviceName}`);
+    const metaEl = document.getElementById(`meta-${serviceName}`);
+
+    if (!riskEl || !metaEl) return;
+
+    const outCount = Object.values(d.outgoing || {}).flat().length;
+    const inCount  = Object.values(d.incoming || {}).flat().length;
+
+    // simple risk heuristic
+    const total = outCount + inCount;
+    const risk = total > 10 ? 'HIGH' : total > 4 ? 'MEDIUM' : 'LOW';
+
+    riskEl.textContent = risk;
+    riskEl.className = `risk-badge risk-${risk}`;
+
+    metaEl.innerHTML = `
+      Calls <strong>${outCount}</strong> other service(s)<br>
+      Called by <strong>${inCount}</strong> other service(s)<br>
+      Total connections: <strong>${total}</strong>
+    `;
+  } catch(e) {
+    const riskEl = document.getElementById(`risk-${serviceName}`);
+    const metaEl = document.getElementById(`meta-${serviceName}`);
+    if (riskEl) { riskEl.textContent = '—'; riskEl.className = 'risk-badge'; }
+    if (metaEl) metaEl.textContent = 'Could not load details.';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function setWaiting(v) {
+  isWaiting = v;
+  btnSubmit.disabled = v;
+  btnSend.disabled = v || !sessionId;
+  btnSubmit.textContent = v ? '⏳ Analysing…' : '🚀 Analyse Impact';
+}
+
+function resetSession() {
+  sessionId = null;
+  sessionBadge.textContent = 'No session';
+  chatMessages.innerHTML = '';
+  chatMessages.appendChild(chatEmpty);
+  chatEmpty.style.display = '';
+  impactBody.innerHTML = '';
+  impactBody.appendChild(impactEmpty);
+  impactEmpty.style.display = '';
+  btnSend.disabled = true;
+}
+</script>
+</body>
+</html>
