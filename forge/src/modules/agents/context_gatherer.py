@@ -3,10 +3,14 @@ Context Gatherer Agent (Google ADK)
 
 Clarifies vague requirements through conversation.
 Uses graph tools to show available services.
+
+Harness items implemented in this file:
+- ITEM 2: Output grounding — remove hallucinated service names from agent output
 """
 
 from typing import TypedDict, Optional
 from .base import BaseADKAgent
+from .harness_utils import ground_services
 
 
 class RequirementsOutput(TypedDict):
@@ -286,7 +290,23 @@ class ContextGathererAgent(BaseADKAgent):
         
         # Parse response
         result = self.parse_json(response)
-        
+
+        # HARNESS ITEM 2: Ground output — remove service names not in the codebase graph
+        if _graph_tools and result.get("services"):
+            known = _graph_tools.services
+            valid, hallucinated = ground_services(result["services"], known)
+            if hallucinated:
+                print(f"  [HARNESS ITEM 2] Removed hallucinated services: {hallucinated}")
+                result["services"] = valid
+                note = (
+                    f"Note: services {hallucinated} were not found in the codebase and were removed. "
+                    f"Available services: {', '.join(known[:8])}{'...' if len(known) > 8 else ''}. "
+                    "Please clarify which existing service you mean."
+                )
+                existing_q = result.get("follow_up_question") or ""
+                result["follow_up_question"] = (existing_q + " " + note).strip()
+                result["complete"] = False  # Force another round
+
         output: RequirementsOutput = {
             "complete": result.get("complete", False),
             "clarity_score": result.get("clarity_score", 1),

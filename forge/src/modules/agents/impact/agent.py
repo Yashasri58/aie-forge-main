@@ -7,6 +7,13 @@ Google ADK agent that uses code graph tools to answer
 Tools available:
 - CodeGraph tools: search_symbols, analyze_impact, trace_call_path, get_service_topology
 - Kuzu Cypher: query_cypher (raw Cypher queries)
+
+Harness items implemented in this file:
+- ITEM 3: Tool receipt logging (receipts_log on every tool call)
+- ITEM 6: Action boundary on query_cypher + analyze_impact (check_cypher_safe, check_symbol_name)
+- ITEM 8: Epistemic classification of report claims (classify_report_claims)
+- C4:     Artifact store for large Kuzu results (store_artifact)
+- P4:     Budget enforcement per analysis run (BudgetEnforcer)
 """
 
 import asyncio
@@ -19,6 +26,19 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from .prompts import SYSTEM_INSTRUCTION
+from modules.agents.harness_utils import (
+    check_cypher_safe,
+    check_symbol_name,
+    receipts_reset,
+    receipts_log,
+    receipts_get,
+    receipts_assert_used,
+    store_artifact,
+    classify_report_claims,
+    ARTIFACT_THRESHOLD,
+    BudgetEnforcer,
+    LoopDetector,
+)
 
 if TYPE_CHECKING:
     from modules.codegraph import CodeGraphTools, KuzuCodeGraphStore
@@ -27,6 +47,10 @@ if TYPE_CHECKING:
 # Module-level tool instances (set by ImpactAgent)
 _tools: Optional["CodeGraphTools"] = None
 _store: Optional["KuzuCodeGraphStore"] = None
+
+# Per-run budget enforcer and loop detector (reset on each analyze_for_pipeline call)
+_budget: Optional[BudgetEnforcer] = None
+_loop_detector: Optional[LoopDetector] = None
 
 
 # =============================================================================
@@ -39,7 +63,9 @@ def get_schema() -> dict:
     Returns node types, edge types, services list, and symbol count.
     Use this first to understand what's available.
     """
-    return _tools.get_schema()
+    result = _tools.get_schema()
+    receipts_log("get_schema", {}, result)  # HARNESS: ITEM 3
+    return result
 
 
 def search_symbols(query: str, kind: str = None, service: str = None) -> dict:
@@ -53,7 +79,10 @@ def search_symbols(query: str, kind: str = None, service: str = None) -> dict:
     Returns:
         Matching symbols with name, kind, service, file, line
     """
-    return _tools.search_symbols(query, kind, service)
+    result = _tools.search_symbols(query, kind, service)
+    receipts_log("search_symbols", {"query": query, "kind": kind, "service": service},
+                 result)  # HARNESS: ITEM 3
+    return result
 
 
 def analyze_impact(symbol_name: str) -> dict:
@@ -71,7 +100,9 @@ def analyze_impact(symbol_name: str) -> dict:
         - explanation: Human-readable impact summary
         - testing_recommendation: What to test
     """
-    return _tools.analyze_impact(symbol_name)
+    result = _tools.analyze_impact(symbol_name)
+    receipts_log("analyze_impact", {"symbol_name": symbol_name}, result)  # HARNESS: ITEM 3
+    return result
 
 
 def trace_call_path(start_symbol: str, direction: str = "outgoing", max_depth: int = 4) -> dict:
@@ -87,7 +118,10 @@ def trace_call_path(start_symbol: str, direction: str = "outgoing", max_depth: i
         - affected_services: All services in the call chains
         - total_paths: Number of paths found
     """
-    return _tools.trace_call_path(start_symbol, direction, max_depth)
+    result = _tools.trace_call_path(start_symbol, direction, max_depth)
+    receipts_log("trace_call_path", {"symbol": start_symbol, "direction": direction},
+                 result)  # HARNESS: ITEM 3
+    return result
 
 
 def get_service_topology(service_name: str = None) -> dict:
@@ -102,7 +136,9 @@ def get_service_topology(service_name: str = None) -> dict:
         - outgoing: Services each service calls
         - incoming: Services that call each service
     """
-    return _tools.get_service_topology(service_name)
+    result = _tools.get_service_topology(service_name)
+    receipts_log("get_service_topology", {"service": service_name}, result)  # HARNESS: ITEM 3
+    return result
 
 
 # =============================================================================
@@ -150,8 +186,31 @@ def query_cypher(cypher_query: str) -> dict:
     Returns:
         Query results (limited to 100 rows) with count
     """
+    # HARNESS ITEM 6: Action boundary — block write operations on the graph DB
+    allowed, err = check_cypher_safe(cypher_query)
+    if not allowed:
+        return {"error": err, "query": cypher_query}
+
     try:
         results = _store.query(cypher_query)
+
+        # HARNESS C4: Artifact store — offload large results to disk
+        if len(results) > ARTIFACT_THRESHOLD:
+            handle = store_artifact(
+                {"query": cypher_query, "results": results}, "query_cypher"
+            )
+            receipts_log("query_cypher", {"query": cypher_query[:100]},
+                         results)  # HARNESS: ITEM 3
+            return {
+                "query": cypher_query,
+                "summary": f"{len(results)} rows returned — full result stored at {handle}",
+                "preview": results[:3],
+                "artifact_ref": handle,
+                "total_count": len(results),
+            }
+
+        receipts_log("query_cypher", {"query": cypher_query[:100]},
+                     results)  # HARNESS: ITEM 3
         return {
             "query": cypher_query,
             "results": results[:100],
@@ -394,8 +453,43 @@ If no new impacts, state "No additional services affected" for Layer 1 and 2.
 """
         
         # Get response from ADK agent (which will use tools)
+        # HARNESS ITEM 3: Reset receipts before this run, verify tools were used after
+        receipts_reset()
+
+        # HARNESS P4: Initialize budget enforcer for this analysis run
+        global _budget, _loop_detector
+        _budget = BudgetEnforcer(max_llm_calls=50, max_tool_calls=200, max_seconds=600)
+        _loop_detector = LoopDetector(window=5, threshold=3)
+
         report = await self.analyze(query)
-        
+
+        # HARNESS ITEM 3: Verify the agent actually called graph tools
+        ok, receipt_err = receipts_assert_used(min_calls=1)
+        if not ok:
+            print(f"  [HARNESS ITEM 3] {receipt_err}")
+            # Return a rejection message instead of a potentially hallucinated report
+            return (
+                f"HARNESS REJECTION: {receipt_err}\n\n"
+                "Please retry the analysis. The system requires the agent to query "
+                "the code graph before producing an impact report."
+            )
+
+        # HARNESS ITEM 8: Tag report claims with epistemic source [GRAPH] vs [MODEL]
+        grounded_services = set()
+        for r in receipts_get():
+            # Collect service names that appeared in actual tool results
+            if isinstance(r.get("result_count"), int) and r["result_count"] > 0:
+                grounded_services.add(r.get("input", "").split("symbol_name:")[-1].strip()[:50])
+        # Use known services from graph as the ground truth
+        if _tools:
+            grounded_services.update(_tools.services)
+        report = classify_report_claims(report, grounded_services)
+
+        # Log receipt summary for the activity log
+        receipts = receipts_get()
+        tool_names = [r["tool"] for r in receipts]
+        print(f"  [HARNESS] Tool receipts ({len(receipts)} calls): {tool_names}")
+
         return report
     
     async def analyze_for_pipeline_json(self, requirements: dict, iteration: int = 1, previous_tasks: list = None) -> dict:

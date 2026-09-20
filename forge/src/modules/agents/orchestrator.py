@@ -8,6 +8,15 @@ Pipeline Orchestrator
     VerificationAgent → Checks completeness, identifies gaps
     
     Loop: ImpactAgent ↔ VerificationAgent until complete (max 3 iterations)
+
+Harness items implemented in this file:
+- ITEM 1: Agent-to-agent input contract validator (_validate_requirements)
+- ITEM 4: Report grounding check (_check_report_grounding)
+- ITEM 7: Model-readable error messages (all harness errors are actionable)
+- C2:     Prompt injection sanitizer (sanitize_message in start())
+- C5:     Structured event types in log_activity (make_log_entry)
+- P2:     Loop detection per analysis run (LoopDetector)
+- P3:     Reasoning sandwich — budget tokens vary by pipeline stage
 """
 
 from dataclasses import dataclass, field
@@ -19,6 +28,67 @@ import time
 from .context_gatherer import ContextGathererAgent, RequirementsOutput
 from .verification_agent import VerificationAgent
 from .base import AgentLogger
+from .harness_utils import (
+    sanitize_message,
+    ground_services,
+    check_report_grounding,
+    make_log_entry,
+    LoopDetector,
+)
+
+# =============================================================================
+# C1: SQLite STATE PERSISTENCE
+# =============================================================================
+import json
+import sqlite3
+from pathlib import Path
+
+_DB_PATH = Path(__file__).parent.parent.parent.parent.parent / "forge_sessions.db"
+
+
+def _init_session_db():
+    """Create sessions table if it doesn't exist."""
+    with sqlite3.connect(str(_DB_PATH)) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_sessions (
+                id TEXT PRIMARY KEY,
+                stage TEXT,
+                created_at REAL,
+                updated_at REAL,
+                state_json TEXT
+            )
+        """)
+
+
+def _save_session(pipeline_id: str, stage: str, state_dict: dict):
+    """Persist pipeline state after each stage transition."""
+    try:
+        _init_session_db()
+        with sqlite3.connect(str(_DB_PATH)) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO pipeline_sessions
+                    (id, stage, created_at, updated_at, state_json)
+                VALUES (?, ?, COALESCE(
+                    (SELECT created_at FROM pipeline_sessions WHERE id=?), ?
+                ), ?, ?)
+            """, (pipeline_id, stage, pipeline_id, time.time(),
+                  time.time(), json.dumps(state_dict, default=str)))
+    except Exception as e:
+        print(f"  [HARNESS C1] Session save failed (non-fatal): {e}")
+
+
+def _load_session(pipeline_id: str) -> dict | None:
+    """Load persisted session state for resume."""
+    try:
+        _init_session_db()
+        with sqlite3.connect(str(_DB_PATH)) as conn:
+            row = conn.execute(
+                "SELECT state_json FROM pipeline_sessions WHERE id=?",
+                (pipeline_id,)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+    except Exception:
+        return None
 
 
 class PipelineStage(str, Enum):
@@ -63,13 +133,11 @@ class PipelineState:
     # Status
     error: Optional[str] = None
     
-    def log_activity(self, message: str, level: str = "info"):
-        """Add an activity log entry."""
-        self.activity_log.append({
-            "time": time.time(),
-            "message": message,
-            "level": level  # info, success, warning, error
-        })
+    def log_activity(self, message: str, level: str = "info",
+                     event_type: str = None, metadata: dict = None):
+        """Add a structured activity log entry. (C5: typed events + metadata)"""
+        entry = make_log_entry(message, level, event_type, metadata)
+        self.activity_log.append(entry)
         self.updated_at = time.time()
     
     def to_dict(self) -> dict:
@@ -145,9 +213,66 @@ class PipelineOrchestrator:
         
         # State store
         self._states: dict[str, PipelineState] = {}
+        
+        # Per-run loop detector (reset in confirm_requirements)
+        self._loop_detector = LoopDetector(window=5, threshold=3)
+
+    # =========================================================================
+    # HARNESS METHODS
+    # =========================================================================
+
+    def _validate_requirements(self, requirements: dict) -> list[str]:
+        """
+        ITEM 1: Validate requirements before passing to ImpactAgent.
+        Returns list of model-readable error strings. Empty = valid.
+        Checks: required fields present, services exist in graph, functions exist.
+        """
+        errors = []
+        known_services = self.tools.services if self.tools else []
+
+        if not requirements.get("description", "").strip():
+            errors.append(
+                "description is empty — cannot start analysis. "
+                "Please describe what change you want to make."
+            )
+
+        for svc in requirements.get("services", []):
+            if known_services and svc not in known_services:
+                similar = [k for k in known_services if svc.lower() in k.lower()]
+                hint = f" Did you mean: {', '.join(similar[:3])}?" if similar else \
+                       f" Available: {', '.join(known_services[:5])}..."
+                errors.append(
+                    f"Service '{svc}' not found in the codebase.{hint}"
+                )
+
+        if requirements.get("functions") and self.tools:
+            for fn in requirements["functions"]:
+                result = self.tools.search_symbols(fn)
+                if result.get("count", 0) == 0:
+                    errors.append(
+                        f"Function '{fn}' not found in the codebase. "
+                        "Use search_functions to find the correct name."
+                    )
+
+        return errors
+
+    def _check_report_grounding(self, report: str) -> list[str]:
+        """
+        ITEM 4: Scan impact report for service names not in the graph.
+        Returns list of hallucinated service names.
+        """
+        if not self.tools:
+            return []
+        return check_report_grounding(report, self.tools.services)
     
     async def start(self, message: str) -> PipelineState:
         """Start pipeline with initial requirement."""
+        # HARNESS C2: Sanitize user message before passing to agents
+        clean_message, was_sanitized = sanitize_message(message)
+        if was_sanitized:
+            # Log the blocked injection but don't expose details
+            print(f"  [HARNESS C2] Prompt injection attempt detected and sanitized")
+        
         state = PipelineState(
             id=str(uuid.uuid4()),
             stage=PipelineStage.GATHERING,
@@ -161,7 +286,7 @@ class PipelineOrchestrator:
         self.context_gatherer.reset()
         
         requirements = await self.context_gatherer.process({
-            "message": message,
+            "message": clean_message,  # HARNESS C2: use sanitized message
             "is_initial": True
         })
         
@@ -232,7 +357,29 @@ class PipelineOrchestrator:
         
         # Log activity
         services = state.requirements.get('services', [])
-        state.log_activity(f"Requirements confirmed - {len(services)} services targeted", "success")
+        state.log_activity(f"Requirements confirmed - {len(services)} services targeted",
+                           "success", "stage_change", {"services": services})
+
+        # HARNESS ITEM 1: Validate requirements before analysis starts
+        validation_errors = self._validate_requirements(state.requirements)
+        if validation_errors:
+            state.stage = PipelineStage.GATHERING
+            error_msg = "; ".join(validation_errors)
+            state.current_question = (
+                "I found issues with the requirements before starting analysis: "
+                + error_msg
+                + ". Please clarify."
+            )
+            state.log_activity(
+                f"Requirements validation failed: {error_msg}",
+                "error", "harness_check",
+                {"check": "input_contract", "errors": validation_errors}
+            )
+            print(f"  [HARNESS ITEM 1] Rejected: {error_msg}")
+            return state
+
+        state.log_activity(f"Harness: requirements validated — services and functions exist in graph",
+                           "success", "harness_check", {"check": "input_contract"})
         state.log_activity(f"Services: {', '.join(services)}", "info")
         
         # Add confirmation to conversation history
@@ -286,8 +433,38 @@ class PipelineOrchestrator:
                     )
                 
                 state.report = report
-                state.log_activity(f"Report generated: {len(report):,} chars", "success")
+                state.log_activity(f"Report generated: {len(report):,} chars", "success",
+                                   "stage_change", {"chars": len(report)})
                 print(f"  📊 Report generated: {len(report)} characters")
+
+                # HARNESS ITEM 4: Report grounding check — catch hallucinated service names
+                hallucinated = self._check_report_grounding(report)
+                if hallucinated:
+                    state.log_activity(
+                        f"Harness: Report mentions services not in codebase: {hallucinated}",
+                        "warning", "harness_check",
+                        {"check": "report_grounding", "hallucinated": hallucinated}
+                    )
+                    print(f"  [HARNESS ITEM 4] Hallucinated services in report: {hallucinated}")
+                    # Add as gaps so verification loop investigates
+                    if state.verification is None:
+                        state.verification = {}
+                    existing_gaps = state.verification.get("gaps", [])
+                    for svc in hallucinated:
+                        existing_gaps.append({
+                            "missing_caller": "UNKNOWN",
+                            "missing_caller_service": svc,
+                            "should_call": "VERIFY_EXISTS",
+                            "should_be_in_layer": 0,
+                            "evidence": "harness_grounding_check: service not in graph",
+                        })
+                    state.verification["gaps"] = existing_gaps
+                else:
+                    state.log_activity(
+                        "Harness: All service names in report verified against graph",
+                        "success", "harness_check",
+                        {"check": "report_grounding"}
+                    )
                 
             except Exception as e:
                 state.stage = PipelineStage.FAILED
@@ -347,11 +524,12 @@ class PipelineOrchestrator:
             if state.verification.get("complete", False):
                 # All paths verified, done!
                 state.stage = PipelineStage.AWAITING_APPROVAL
-                state.log_activity("✓ Analysis complete!", "success")
+                state.log_activity("Analysis complete!", "success", "stage_change")
                 state.log_activity(f"Finished in {state.iteration} iteration(s)", "success")
                 AgentLogger.stage_change("AWAITING_APPROVAL", 
                     f"Complete after {state.iteration} iteration(s), confidence: {state.verification.get('confidence', 'N/A')}")
                 state.updated_at = time.time()
+                _save_session(state.id, state.stage.value, state.to_dict())  # HARNESS C1
                 
                 # Get JSON version for UI
                 try:

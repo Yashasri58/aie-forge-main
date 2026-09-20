@@ -3,26 +3,51 @@ Verification Agent (Google ADK)
 
 Verifies impact analysis is complete at all levels.
 Uses graph tools to check all callers are traced.
+
+Harness items implemented in this file:
+- ITEM 5: Tool receipt check — reject "complete" verdict if no trace_callers called
 """
 
+import time as _time
 from .base import BaseADKAgent
+from .harness_utils import receipts_log as _log_receipt
 
 
 # Module-level tools instance
 _graph_tools = None
 
+# Per-run receipt log for verification agent (separate from ImpactAgent's)
+_verification_receipts: list[dict] = []
+
+
+def _reset_verification_receipts():
+    global _verification_receipts
+    _verification_receipts = []
+
 
 def trace_callers(symbol: str, max_depth: int = 2) -> dict:
     """Find all functions that call this symbol."""
     if _graph_tools:
-        return _graph_tools.trace_call_path(symbol, direction="incoming", max_depth=max_depth)
+        result = _graph_tools.trace_call_path(symbol, direction="incoming", max_depth=max_depth)
+        # HARNESS ITEM 5: log receipt
+        _verification_receipts.append({
+            "tool": "trace_callers", "symbol": symbol,
+            "result_count": len(result.get("paths", [])), "ts": _time.time()
+        })
+        return result
     return {"paths": []}
 
 
 def trace_callees(symbol: str, max_depth: int = 2) -> dict:
     """Find all functions that this symbol calls."""
     if _graph_tools:
-        return _graph_tools.trace_call_path(symbol, direction="outgoing", max_depth=max_depth)
+        result = _graph_tools.trace_call_path(symbol, direction="outgoing", max_depth=max_depth)
+        # HARNESS ITEM 5: log receipt
+        _verification_receipts.append({
+            "tool": "trace_callees", "symbol": symbol,
+            "result_count": len(result.get("paths", [])), "ts": _time.time()
+        })
+        return result
     return {"paths": []}
 
 
@@ -242,9 +267,40 @@ VERIFICATION STEPS:
 
 Report any gaps as JSON."""
 
+        # HARNESS ITEM 5: Verify that the agent actually called trace_callers/trace_callees
+        # Reset receipts before this run, check after
+        _reset_verification_receipts()
         response = await self.run(prompt)
         result = self.parse_json(response)
-        
+
+        trace_receipts = [r for r in _verification_receipts
+                          if r["tool"] in ("trace_callers", "trace_callees")]
+
+        if len(symbols) > 0 and len(trace_receipts) == 0:
+            # Agent claimed to verify without using any tools — override
+            print(f"  [HARNESS ITEM 5] VerificationAgent returned verdict without tool calls — overriding to LOW confidence")
+            return {
+                "complete": False,
+                "confidence": "LOW",
+                "gaps": [{
+                    "missing_caller": "UNKNOWN",
+                    "missing_caller_service": "UNKNOWN",
+                    "should_call": "UNKNOWN",
+                    "should_be_in_layer": 1,
+                    "evidence": "harness_receipt_check: verification agent made no tool calls",
+                }],
+                "schema_gaps": [],
+                "config_gaps": [],
+                "verified_paths": 0,
+                "recommendation": (
+                    "Verification agent did not use trace_callers or trace_callees. "
+                    "This means the verification is self-assessed, not graph-verified. "
+                    "Re-running verification."
+                ),
+            }
+
+        print(f"  [HARNESS ITEM 5] Verification receipts: {len(trace_receipts)} trace calls confirmed")
+
         return {
             "complete": result.get("complete", False),
             "confidence": result.get("confidence", "LOW"),
