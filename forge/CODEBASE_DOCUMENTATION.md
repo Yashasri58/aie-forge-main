@@ -1328,3 +1328,155 @@ All agents share the same `CodeGraphTools` instance, which wraps `KuzuCodeGraphS
 ---
 
 *Updated: September 2026 — Reflects codegraph-tools + Kuzu architecture with enrichment layer (packages, DB schemas, OpenAPI contracts, env vars), updated agent tools, 4 new API endpoints, and EnrichmentPanel UI.*
+
+
+---
+
+## Pipeline 3 — Reverse Engineer (`src/modules/reverse_engineer/`)
+
+*Added: September 2026*
+
+Takes a plain-text application log file and produces a 12-section specification document — no source code required.
+
+### Module Files
+
+| File | Purpose |
+|---|---|
+| `orchestrator.py` | State machine, SQLite persistence (`forge_re_sessions.db`), async background pipeline |
+| `log_parser.py` | Stage 1 — regex extraction (services, endpoints, trace flows, Kafka, SLOs, errors) |
+| `template_extractor.py` | Stage 2 — drain3 template mining, variable masking |
+| `inference_agent.py` | Stage 3 — Gemini 2.5 Pro builds ApplicationSpecGraph with CONFIRMED/INFERRED/GAP claims |
+| `gap_agent.py` | Stage 4 — Gemini 2.5 Flash downgrades over-confident claims, identifies true GAPs |
+| `spec_writer_agent.py` | Stage 5 — Gemini 2.5 Flash, 12 Markdown sections (1 LLM call per section) |
+| `harness.py` | `REPolicyGate`, `REBudgetEnforcer`, `RELoopDetector`, `REToolReceiptLog`, `sanitize_user_comments` |
+| `schemas.py` | `RESession`, `ExtractedFacts`, `ApplicationSpecGraph`, `SpecSection`, `Confidence` enum |
+| `prompts.py` | `INFERENCE_SYSTEM`, `GAP_SYSTEM`, `build_spec_section_prompt()` for all 12 sections |
+| `logging_config.py` | Structured logger with `[RE:*]` prefixes, ASCII-safe for Windows |
+
+### API Endpoints (`src/interfaces/api/re_routes.py`)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/reverse-engineer/start` | Upload log file (multipart) + optional `user_comments` |
+| GET  | `/reverse-engineer/{id}` | Poll session — stage, activity_log, service_count, spec_section_count |
+| GET  | `/reverse-engineer/{id}/facts` | Extracted facts from Stage 1+2 |
+| GET  | `/reverse-engineer/{id}/spec/all` | Dict of all 12 spec sections |
+| GET  | `/reverse-engineer/{id}/spec/{section_id}` | Single section Markdown |
+| GET  | `/reverse-engineer/{id}/spec/download` | ZIP of all 12 Markdown files |
+
+### Frontend Pages
+
+| Page | Route | Description |
+|---|---|---|
+| `ReverseEngineer.tsx` | `/reverse-engineer` | Log file upload (drag-drop), optional context, "How it Works" button |
+| `REPipeline.tsx` | `/reverse-engineer/:id/pipeline` | 7-stage progress bar + live activity log terminal |
+| `RESpec.tsx` | `/reverse-engineer/:id/spec` | Tabbed spec viewer, Markdown renderer, confidence sidebar, ZIP download |
+| `ConfidenceBadge.tsx` | (component) | CONFIRMED / INFERRED / GAP inline badges |
+| `HowREWorks.tsx` | (modal) | 5-step pipeline explainer modal |
+
+### Output Files
+
+All spec files written to: `reverse-engineer/output/{session_id}/`
+
+```
+00_executive_summary.md
+01_service_inventory.md
+02_api_catalog.md
+03_business_logic.md
+04_event_topology.md
+05_data_model.md
+06_cross_cutting.md
+07_slos_and_observability.md
+08_resilience_patterns.md
+09_tech_stack.md
+10_risks_and_gaps.md
+11_confidence_report.md
+```
+
+### Test Datasets (`new-requirements/test-logs/`)
+
+11 test log files covering well-known SaaS patterns (Slack-like, Stripe-like, GitHub-like, PostHog-like) and unknown custom SaaS (banking-core, ridesharing, ecommerce, genomics, medical-imaging, contract-management).
+
+Run the test suite (Stages 1+2 only, no API key needed):
+```bash
+$env:PYTHONIOENCODING='utf-8'; venv\Scripts\python.exe test_reverse_engineer.py
+```
+
+---
+
+## Demo Cache (`src/modules/cache/`)
+
+*Added: September 2026*
+
+SQLite-backed store that automatically saves all completed pipeline runs for instant replay during demos.
+
+### Files
+
+| File | Purpose |
+|---|---|
+| `demo_cache.py` | `DemoCache` class — `save()`, `get()`, `find_by_input()`, `list()`, `delete()`, `stats()` |
+| `__init__.py` | Exports `DemoCache`, `get_cache()` singleton |
+
+**DB path:** `forge_demo_cache.db` (project root, not committed)
+
+**Schema:**
+```sql
+demo_cache(
+  id           TEXT PRIMARY KEY,
+  pipeline_type TEXT,   -- "impact" | "codegen" | "reverse_engineer"
+  label        TEXT,
+  input_hash   TEXT,    -- SHA-256 of input JSON for dedup
+  input_json   TEXT,
+  output_json  TEXT,
+  created_at   REAL,
+  last_used_at REAL,
+  use_count    INTEGER
+)
+```
+
+### API Endpoints (`src/interfaces/api/cache_routes.py`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET    | `/cache` | List all entries (metadata, no output blobs) |
+| GET    | `/cache/stats` | Counts by pipeline type |
+| GET    | `/cache/{id}` | Full entry: input + output |
+| DELETE | `/cache/{id}` | Delete one entry |
+| DELETE | `/cache?type=...` | Clear all or by type |
+| POST   | `/cache/{id}/label` | Rename label |
+
+### Frontend
+
+**Dashboard:** "Past Requests & Results" panel — lists cached runs by type, label, timestamp. Click → `/history/{id}`.
+
+**`HistoryDetail.tsx`** (`/history/:id`): Two-tab view:
+- **Request tab:** change description, target services, constraints (impact/codegen) or log file + context (RE)
+- **Result tab:** full impact report text / diff viewer / spec sections depending on type
+
+---
+
+## New Frontend Pages (September 2026)
+
+| Page | Route | Added | Description |
+|---|---|---|---|
+| `ReverseEngineer.tsx` | `/reverse-engineer` | Pipeline 3 | Log upload |
+| `REPipeline.tsx` | `/reverse-engineer/:id/pipeline` | Pipeline 3 | Live progress |
+| `RESpec.tsx` | `/reverse-engineer/:id/spec` | Pipeline 3 | Spec viewer |
+| `HistoryDetail.tsx` | `/history/:id` | Cache | Past run detail |
+
+---
+
+## Updated Agent Tools Summary
+
+| Agent | Tools Used | Source |
+|---|---|---|
+| **ImpactAgent** | `get_schema`, `search_symbols`, `analyze_impact`, `trace_call_path`, `get_service_topology`, `query_cypher` | CodeGraphTools + Kuzu direct |
+| **ContextGathererAgent** | `.services`, `search_symbols()` | CodeGraphTools |
+| **VerificationAgent** | `trace_call_path()`, `search_symbols()` | CodeGraphTools |
+| **DesignAgent** | `list_services`, `list_directory`, `read_file`, `grep`, `query_code_graph`, `find_tests`, `get_similar_patterns` | Filesystem + CodeGraphTools |
+| **ImplementationAgent** | `read_current_file`, `apply_diff_to_content` | Filesystem |
+| **CoordinatorAgent** | `check_file_exists`, `check_directory_exists`, `read_file_content`, `analyze_phase_parallelism` | Filesystem |
+
+---
+
+*Updated: September 2026 — Added Pipeline 3 (Reverse Engineer), Demo Cache, Past Requests & Results UI, updated agent tools table.*
