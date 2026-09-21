@@ -96,22 +96,48 @@ async def get_overview():
     Get the top-level overview: all services.
     """
     store = get_store()
+
+    def safe_query(cypher: str, params: dict = None) -> list:
+        try:
+            return store.query(cypher, params or {})
+        except Exception:
+            return []
     
     # Get all services
-    services = store.query("MATCH (s:Service) RETURN s.name AS name", {})
+    services = safe_query("MATCH (s:Service) RETURN s.name AS name")
     
     # Get symbol counts per service
-    counts = store.query(
-        "MATCH (s:Symbol) RETURN s.service AS service, count(*) AS count",
-        {}
-    )
+    counts = safe_query("MATCH (s:Symbol) RETURN s.service AS service, count(*) AS count")
     count_map = {r["service"]: r["count"] for r in counts}
     
     # Get HTTP dependencies
-    http_deps = store.query(
-        "MATCH (a:Service)-[r:HTTP_CALLS]->(b:Service) RETURN a.name AS source, b.name AS target",
-        {}
+    http_deps = safe_query(
+        "MATCH (a:Service)-[r:HTTP_CALLS]->(b:Service) RETURN a.name AS source, b.name AS target"
     )
+
+    # Enrichment: package dep counts per service
+    pkg_counts = safe_query(
+        "MATCH (s:Service)-[r:DEPENDS_ON]->(p:Package) RETURN s.name AS service, count(*) AS count"
+    )
+    pkg_map = {r["service"]: r["count"] for r in pkg_counts}
+
+    # Enrichment: DB table counts per service
+    table_counts = safe_query(
+        "MATCH (s:Service)-[r:OWNS_TABLE]->(t:DbTable) RETURN s.name AS service, count(*) AS count"
+    )
+    table_map = {r["service"]: r["count"] for r in table_counts}
+
+    # Enrichment: API endpoint counts per service
+    endpoint_counts = safe_query(
+        "MATCH (s:Service)-[r:EXPOSES_ENDPOINT]->(e:ApiEndpoint) RETURN s.name AS service, count(*) AS count"
+    )
+    endpoint_map = {r["service"]: r["count"] for r in endpoint_counts}
+
+    # Enrichment: env var counts per service
+    envvar_counts = safe_query(
+        "MATCH (s:Service)-[r:READS_ENV]->(e:EnvVar) RETURN s.name AS service, count(*) AS count"
+    )
+    envvar_map = {r["service"]: r["count"] for r in envvar_counts}
     
     # Build nodes
     nodes = []
@@ -121,7 +147,13 @@ async def get_overview():
             id=f"service:{svc_name}",
             label=svc_name,
             type="service",
-            properties={"name": svc_name},
+            properties={
+                "name": svc_name,
+                "packages": pkg_map.get(svc_name, 0),
+                "db_tables": table_map.get(svc_name, 0),
+                "api_endpoints": endpoint_map.get(svc_name, 0),
+                "env_vars": envvar_map.get(svc_name, 0),
+            },
             expandable=True,
             child_count=count_map.get(svc_name, 0)
         ))
@@ -343,39 +375,61 @@ async def get_graph_stats():
     """Get statistics about the graph."""
     store = get_store()
     
-    # Count services
-    svc_result = store.query("MATCH (s:Service) RETURN count(*) AS count", {})
-    service_count = svc_result[0]["count"] if svc_result else 0
-    
-    # Count symbols
-    sym_result = store.query("MATCH (s:Symbol) RETURN count(*) AS count", {})
-    symbol_count = sym_result[0]["count"] if sym_result else 0
-    
-    # Count call edges
-    calls_result = store.query("MATCH ()-[r:CALLS]->() RETURN count(*) AS count", {})
-    calls_count = calls_result[0]["count"] if calls_result else 0
-    
+    def safe_count(cypher: str) -> int:
+        try:
+            result = store.query(cypher, {})
+            return result[0]["count"] if result else 0
+        except Exception:
+            return 0
+
+    # Core graph counts
+    service_count = safe_count("MATCH (s:Service) RETURN count(*) AS count")
+    symbol_count  = safe_count("MATCH (s:Symbol) RETURN count(*) AS count")
+    calls_count   = safe_count("MATCH ()-[r:CALLS]->() RETURN count(*) AS count")
+    http_count    = safe_count("MATCH ()-[r:HTTP_CALLS]->() RETURN count(*) AS count")
+
+    # Enrichment counts
+    pkg_count      = safe_count("MATCH (p:Package) RETURN count(*) AS count")
+    dep_edge_count = safe_count("MATCH ()-[r:DEPENDS_ON]->() RETURN count(*) AS count")
+    table_count    = safe_count("MATCH (t:DbTable) RETURN count(*) AS count")
+    endpoint_count = safe_count("MATCH (e:ApiEndpoint) RETURN count(*) AS count")
+    envvar_count   = safe_count("MATCH (e:EnvVar) RETURN count(*) AS count")
+
     # Symbols by service
-    by_service = store.query(
-        "MATCH (s:Symbol) RETURN s.service AS service, count(*) AS count ORDER BY count DESC",
-        {}
-    )
-    
+    try:
+        by_service = store.query(
+            "MATCH (s:Symbol) RETURN s.service AS service, count(*) AS count ORDER BY count DESC",
+            {}
+        )
+    except Exception:
+        by_service = []
+
     # Symbols by kind
-    by_kind = store.query(
-        "MATCH (s:Symbol) RETURN s.kind AS kind, count(*) AS count ORDER BY count DESC",
-        {}
-    )
-    
+    try:
+        by_kind = store.query(
+            "MATCH (s:Symbol) RETURN s.kind AS kind, count(*) AS count ORDER BY count DESC",
+            {}
+        )
+    except Exception:
+        by_kind = []
+
+    total_edges = calls_count + http_count + dep_edge_count + table_count + endpoint_count + envvar_count
+
     return {
         "nodes": {
             "services": service_count,
             "symbols": symbol_count,
-            "total": service_count + symbol_count
+            "packages": pkg_count,
+            "db_tables": table_count,
+            "api_endpoints": endpoint_count,
+            "env_vars": envvar_count,
+            "total": service_count + symbol_count + pkg_count + table_count + endpoint_count + envvar_count
         },
         "edges": {
             "calls": calls_count,
-            "total": calls_count
+            "http_calls": http_count,
+            "depends_on": dep_edge_count,
+            "total": total_edges
         },
         "symbols_by_service": {r["service"]: r["count"] for r in by_service if r["service"]},
         "symbols_by_kind": {r["kind"]: r["count"] for r in by_kind if r["kind"]}

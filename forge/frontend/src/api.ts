@@ -120,16 +120,32 @@ export async function getGraphStats(): Promise<{
   services: number;
   symbols: number;
   edges: number;
+  packages: number;
+  db_tables: number;
+  api_endpoints: number;
+  env_vars: number;
 }> {
   const res = await fetch("/graph/stats");
   const data = await parseJson<{
-    nodes: { services: number; symbols: number; total: number };
-    edges: { calls: number; http_calls: number; total: number };
+    nodes: {
+      services: number;
+      symbols: number;
+      packages: number;
+      db_tables: number;
+      api_endpoints: number;
+      env_vars: number;
+      total: number;
+    };
+    edges: { calls: number; http_calls: number; depends_on: number; total: number };
   }>(res);
   return {
     services: data.nodes.services,
     symbols: data.nodes.symbols,
     edges: data.edges.total,
+    packages: data.nodes.packages ?? 0,
+    db_tables: data.nodes.db_tables ?? 0,
+    api_endpoints: data.nodes.api_endpoints ?? 0,
+    env_vars: data.nodes.env_vars ?? 0,
   };
 }
 
