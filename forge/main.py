@@ -330,3 +330,27 @@ else:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+# Run directly:  python main.py
+# Configure via .env:  PORT=8000  HOST=0.0.0.0  LOG_LEVEL=info
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host      = os.getenv("HOST", "0.0.0.0")
+    port      = int(os.getenv("PORT", "8000"))
+    log_level = os.getenv("LOG_LEVEL", "info")
+
+    print(f"Starting Forge on http://{host}:{port}  (log_level={log_level})")
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+        reload=False,          # set LOG_LEVEL=debug and RELOAD=true for dev
+    )

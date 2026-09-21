@@ -48,11 +48,15 @@ pip install -r requirements.txt
 # 3. Build frontend
 cd frontend && npm install && npm run build && cd ..
 
-# 4. Set API key
-echo GOOGLE_API_KEY=your_key_here > .env
+# 4. Set API key and server config
+# Edit .env:
+#   GOOGLE_API_KEY=your_key_here
+#   PORT=8000
+#   HOST=0.0.0.0
+#   LOG_LEVEL=info
 
 # 5. Start server
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
+python main.py
 ```
 
 Open `http://localhost:8000`.
