@@ -181,6 +181,63 @@ async def get_overview():
     )
 
 
+@router.get("/service/{service_name}/enrichment")
+async def get_service_enrichment(service_name: str):
+    """
+    Return all enrichment detail for a service:
+    packages (name, version, dep_type), DB tables, API endpoints, env vars.
+    """
+    store = get_store()
+
+    def safe_query(cypher: str, params: dict = None) -> list:
+        try:
+            return store.query(cypher, params or {})
+        except Exception:
+            return []
+
+    packages = safe_query(
+        """MATCH (s:Service {name: $svc})-[r:DEPENDS_ON]->(p:Package)
+           RETURN p.name AS name, r.version AS version, r.dep_type AS dep_type
+           ORDER BY r.dep_type, p.name""",
+        {"svc": service_name}
+    )
+
+    db_tables = safe_query(
+        """MATCH (s:Service {name: $svc})-[:OWNS_TABLE]->(t:DbTable)
+           RETURN t.table_name AS name
+           ORDER BY t.table_name""",
+        {"svc": service_name}
+    )
+
+    endpoints = safe_query(
+        """MATCH (s:Service {name: $svc})-[:EXPOSES_ENDPOINT]->(e:ApiEndpoint)
+           RETURN e.method AS method, e.path AS path, e.operation_id AS operation_id
+           ORDER BY e.method, e.path""",
+        {"svc": service_name}
+    )
+
+    env_vars = safe_query(
+        """MATCH (s:Service {name: $svc})-[:READS_ENV]->(e:EnvVar)
+           RETURN e.name AS name
+           ORDER BY e.name""",
+        {"svc": service_name}
+    )
+
+    return {
+        "service": service_name,
+        "packages": [
+            {"name": r["name"], "version": r.get("version") or "", "dep_type": r.get("dep_type") or "runtime"}
+            for r in packages
+        ],
+        "db_tables": [r["name"] for r in db_tables],
+        "api_endpoints": [
+            {"method": r["method"], "path": r["path"], "operation_id": r.get("operation_id") or ""}
+            for r in endpoints
+        ],
+        "env_vars": [r["name"] for r in env_vars],
+    }
+
+
 @router.get("/service/{service_id}", response_model=GraphData)
 async def get_service_contents(
     service_id: str,

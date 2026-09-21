@@ -15,10 +15,15 @@ import {
   Package,
   Globe,
   Settings2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Page, Card, StatCard, Button, Badge, StatusDot, Logo } from "../components/ui";
 import HowForgeWorks from "../components/HowForgeWorks";
-import { getGraphStats, listCache, deleteCacheEntry, type CacheEntry } from "../api";
+import {
+  getGraphStats, listCache, deleteCacheEntry,
+  getServiceEnrichment, type CacheEntry, type ServiceEnrichment,
+} from "../api";
 
 interface ServiceOverview {
   id: string;
@@ -42,6 +47,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [enrichmentCache, setEnrichmentCache] = useState<Record<string, ServiceEnrichment>>({});
+  const [enrichmentLoading, setEnrichmentLoading] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -97,6 +105,25 @@ export default function Dashboard() {
       console.error("Failed to load dashboard data:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleToggleExpand(serviceName: string) {
+    if (expandedService === serviceName) {
+      setExpandedService(null);
+      return;
+    }
+    setExpandedService(serviceName);
+    if (!enrichmentCache[serviceName]) {
+      setEnrichmentLoading(serviceName);
+      try {
+        const data = await getServiceEnrichment(serviceName);
+        setEnrichmentCache(prev => ({ ...prev, [serviceName]: data }));
+      } catch {
+        // ignore — show empty
+      } finally {
+        setEnrichmentLoading(null);
+      }
     }
   }
 
@@ -259,74 +286,193 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="overflow-auto flex-1">
-                <table className="table">
+                <table className="table w-full text-sm">
                   <thead>
                     <tr>
+                      {/* chevron col */}
                       <th className="w-8"></th>
-                      <th>Service</th>
-                      <th className="text-right">Fns</th>
-                      <th className="text-right">In</th>
-                      <th className="text-right">Out</th>
-                      <th className="text-right" title="npm packages"><Package size={12} className="inline" /></th>
-                      <th className="text-right" title="DB tables"><Database size={12} className="inline" /></th>
-                      <th className="text-right" title="API endpoints"><Globe size={12} className="inline" /></th>
-                      <th className="text-right" title="Env vars"><Settings2 size={12} className="inline" /></th>
-                      <th className="w-12"></th>
+                      {/* colour bar */}
+                      <th className="w-2"></th>
+                      {/* service name — takes remaining space */}
+                      <th className="text-left">Service</th>
+                      <th className="w-16 text-right">Fns</th>
+                      <th className="w-16 text-right">In</th>
+                      <th className="w-16 text-right">Out</th>
+                      <th className="w-16 text-right">
+                        <span title="npm packages" className="flex items-center justify-end gap-1">
+                          <Package size={11} className="opacity-60" /> Pkgs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="DB tables" className="flex items-center justify-end gap-1">
+                          <Database size={11} className="opacity-60" /> DBs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="API endpoints" className="flex items-center justify-end gap-1">
+                          <Globe size={11} className="opacity-60" /> APIs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="Env vars" className="flex items-center justify-end gap-1">
+                          <Settings2 size={11} className="opacity-60" /> Env
+                        </span>
+                      </th>
+                      <th className="w-8"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {services.map((service, i) => (
-                      <motion.tr
-                        key={service.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.05 * i }}
-                        className="group"
-                      >
-                        <td>
-                          <div
-                            className="w-1 h-8 rounded-full"
-                            style={{
-                              background: `hsl(${(i * 45) % 360}, 70%, 60%)`,
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <span className="font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors">
-                            {service.name}
-                          </span>
-                        </td>
-                        <td className="text-right font-mono">
-                          {service.functions}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-success)]">
-                          ↓ {service.inbound}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-accent)]">
-                          ↑ {service.outbound}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-text-muted)]">
-                          {service.packages > 0 ? service.packages : <span className="opacity-30">—</span>}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-text-muted)]">
-                          {service.db_tables > 0 ? service.db_tables : <span className="opacity-30">—</span>}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-text-muted)]">
-                          {service.api_endpoints > 0 ? service.api_endpoints : <span className="opacity-30">—</span>}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-text-muted)]">
-                          {service.env_vars > 0 ? service.env_vars : <span className="opacity-30">—</span>}
-                        </td>
-                        <td>
-                          <button
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
-                            onClick={() => navigate(`/explore?focus=${service.id}`)}
+                    {services.map((service, i) => {
+                      const isExpanded = expandedService === service.name;
+                      const enrichment = enrichmentCache[service.name];
+                      const isLoading = enrichmentLoading === service.name;
+                      return (
+                        <>
+                          <motion.tr
+                            key={service.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.04 * i }}
+                            className={`group cursor-pointer select-none ${isExpanded ? "bg-[var(--color-glass-bg)]" : ""}`}
+                            onClick={() => handleToggleExpand(service.name)}
                           >
-                            <ExternalLink size={14} />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
+                            {/* chevron */}
+                            <td className="w-8 text-center">
+                              <span className="text-[var(--color-text-muted)] inline-flex items-center">
+                                {isExpanded
+                                  ? <ChevronDown size={14} />
+                                  : <ChevronRight size={14} />}
+                              </span>
+                            </td>
+                            {/* colour bar */}
+                            <td className="w-2 p-0">
+                              <div
+                                className="w-1 h-8 rounded-full"
+                                style={{ background: `hsl(${(i * 45) % 360}, 70%, 60%)` }}
+                              />
+                            </td>
+                            <td>
+                              <span className={`font-medium transition-colors ${isExpanded ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)]"}`}>
+                                {service.name}
+                              </span>
+                            </td>
+                            <td className="w-16 text-right font-mono">{service.functions}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-success)]">↓ {service.inbound}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-accent)]">↑ {service.outbound}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.packages > 0 ? service.packages : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.db_tables > 0 ? service.db_tables : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.api_endpoints > 0 ? service.api_endpoints : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.env_vars > 0 ? service.env_vars : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-8">
+                              <button
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+                                onClick={(e) => { e.stopPropagation(); navigate(`/explore?focus=${service.id}`); }}
+                                title="View in graph"
+                              >
+                                <ExternalLink size={13} />
+                              </button>
+                            </td>
+                          </motion.tr>
+
+                          {/* ── Expand detail row ── */}
+                          {isExpanded && (
+                            <tr key={`${service.id}-detail`} className="bg-[var(--color-glass-bg)]">
+                              <td colSpan={11} className="px-10 pb-4 pt-2">
+                                {isLoading ? (
+                                  <div className="text-xs text-[var(--color-text-muted)] py-2 animate-pulse">Loading enrichment…</div>
+                                ) : enrichment ? (
+                                  <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                                    {/* Packages */}
+                                    {enrichment.packages.length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{fontSize: "10px"}}>
+                                          <Package size={10} /> npm packages ({enrichment.packages.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.packages.map(p => (
+                                            <span key={p.name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)]">
+                                              {p.name}
+                                              {p.version && <span className="text-[var(--color-text-muted)]">@{p.version}</span>}
+                                              {p.dep_type === "dev" && <span className="text-yellow-500 opacity-70">dev</span>}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* DB Tables */}
+                                    {enrichment.db_tables.length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{fontSize: "10px"}}>
+                                          <Database size={10} /> DB tables ({enrichment.db_tables.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.db_tables.map(t => (
+                                            <span key={t} className="px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)]">{t}</span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* API Endpoints */}
+                                    {enrichment.api_endpoints.length > 0 && (
+                                      <div className="col-span-2">
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{fontSize: "10px"}}>
+                                          <Globe size={10} /> API endpoints ({enrichment.api_endpoints.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.api_endpoints.map(ep => (
+                                            <span key={`${ep.method}:${ep.path}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)] font-mono">
+                                              <span className={`font-bold text-[10px] ${
+                                                ep.method === "GET" ? "text-green-400" :
+                                                ep.method === "POST" ? "text-blue-400" :
+                                                ep.method === "PUT" ? "text-yellow-400" :
+                                                ep.method === "DELETE" ? "text-red-400" :
+                                                "text-[var(--color-text-muted)]"
+                                              }`}>{ep.method}</span>
+                                              {ep.path}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Env vars */}
+                                    {enrichment.env_vars.length > 0 && (
+                                      <div className="col-span-2">
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{fontSize: "10px"}}>
+                                          <Settings2 size={10} /> env vars ({enrichment.env_vars.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.env_vars.map(v => (
+                                            <span key={v} className="px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)] font-mono">{v}</span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {enrichment.packages.length === 0 && enrichment.db_tables.length === 0 &&
+                                     enrichment.api_endpoints.length === 0 && enrichment.env_vars.length === 0 && (
+                                      <div className="col-span-2 text-[var(--color-text-muted)] py-1">No enrichment data for this service.</div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-[var(--color-text-muted)] py-1">No enrichment data available.</div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

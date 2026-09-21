@@ -149,6 +149,19 @@ export async function getGraphStats(): Promise<{
   };
 }
 
+export interface ServiceEnrichment {
+  service: string;
+  packages: { name: string; version: string; dep_type: string }[];
+  db_tables: string[];
+  api_endpoints: { method: string; path: string; operation_id: string }[];
+  env_vars: string[];
+}
+
+export async function getServiceEnrichment(serviceName: string): Promise<ServiceEnrichment> {
+  const res = await fetch(`/graph/service/${encodeURIComponent(serviceName)}/enrichment`);
+  return parseJson<ServiceEnrichment>(res);
+}
+
 // ─── LEGACY STUBS (kept so existing components compile) ─────────────────────
 
 /** @deprecated Use sendChatMessage instead */
