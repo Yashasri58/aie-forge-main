@@ -4,7 +4,10 @@ Code Generation API Routes.
 Endpoints for the code generation pipeline.
 """
 
+import asyncio
+import json
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -144,6 +147,50 @@ def _lookup_state(state_id: str):
     if not state:
         state = _codegen_orchestrator.get_state_by_pipeline(state_id)
     return state
+
+
+@router.get("/{state_id}/stream")
+async def stream_codegen(state_id: str):
+    """SSE stream of codegen progress. Closes when terminal stage is reached."""
+    if not _codegen_orchestrator:
+        raise HTTPException(status_code=503, detail="Code generation not initialized")
+
+    TERMINAL = {"complete", "failed", "approved", "rejected"}
+
+    async def event_generator():
+        sent_count = 0
+        last_stage = None
+
+        while True:
+            state = _codegen_orchestrator.get_state(state_id)
+            if not state:
+                state = _codegen_orchestrator.get_state_by_pipeline(state_id)
+
+            if not state:
+                yield f"event: error\ndata: {json.dumps({'error': 'State not found'})}\n\n"
+                return
+
+            entries = state.activity_log if hasattr(state, "activity_log") else []
+            for entry in (entries or [])[sent_count:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            sent_count = len(entries or [])
+
+            current_stage = state.stage.value if hasattr(state.stage, "value") else str(state.stage)
+            if current_stage != last_stage:
+                last_stage = current_stage
+                yield f"event: stage\ndata: {json.dumps({'stage': current_stage})}\n\n"
+
+            if current_stage in TERMINAL:
+                yield f"event: done\ndata: {json.dumps({'stage': current_stage})}\n\n"
+                return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{state_id}/plan")

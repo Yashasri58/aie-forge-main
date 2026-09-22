@@ -47,18 +47,27 @@ export default function Pipeline() {
   
   const [pipeline, setPipeline] = useState<PipelineState | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const pollingRef = useRef<number | null>(null);
+  const esRef = useRef<EventSource | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (pipelineId) {
-      pollPipeline(pipelineId);
-    }
-    
+    if (!pipelineId) return;
+
+    // Fetch initial state immediately
+    fetchAndUpdate(pipelineId);
+
+    // Open SSE stream
+    const es = new EventSource(`/pipeline/${pipelineId}/stream`);
+    esRef.current = es;
+
+    es.onmessage = () => { fetchAndUpdate(pipelineId); };
+    es.addEventListener("stage", () => { fetchAndUpdate(pipelineId); });
+    es.addEventListener("done", () => { es.close(); fetchAndUpdate(pipelineId); });
+    es.onerror = () => { es.close(); };
+
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
+      es.close();
+      esRef.current = null;
     };
   }, [pipelineId]);
 
@@ -76,29 +85,6 @@ export default function Pipeline() {
       addLog("Pipeline failed: " + (pipeline.error || "Unknown error"), "error");
     }
   }, [pipeline?.stage, pipeline?.id, pipeline?.error, navigate]);
-
-  async function pollPipeline(id: string) {
-    // Initial fetch
-    const state = await fetchAndUpdate(id);
-    
-    // Start polling - keep polling until we reach a terminal state
-    // This handles the case where we navigate here before confirm API starts
-    const shouldPoll = (s: PipelineState | null) => {
-      if (!s) return true; // Keep polling if no state yet
-      return ["requirements_ready", "analyzing", "verifying", "filling_gaps"].includes(s.stage);
-    };
-    
-    if (shouldPoll(state)) {
-      pollingRef.current = window.setInterval(async () => {
-        const newState = await fetchAndUpdate(id);
-        if (!shouldPoll(newState)) {
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-          }
-        }
-      }, 1500); // Poll every 1.5s for more responsive updates
-    }
-  }
 
   async function fetchAndUpdate(id: string): Promise<PipelineState | null> {
     try {

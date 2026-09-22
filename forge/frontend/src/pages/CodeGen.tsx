@@ -70,24 +70,21 @@ export default function CodeGen() {
     }
   }, [pipelineId]);
 
-  // Poll for updates while in progress
+  // SSE stream for live progress while in progress
   useEffect(() => {
     if (!state?.id) return;
 
-    const isInProgress = [
-      "designing",
-      "coordinating",
-      "implementing",
-      "verifying",
-    ].includes(state.stage);
+    const isTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
+    if (isTerminal) return;
 
-    if (!isInProgress) return;
+    const es = new EventSource(`/codegen/${state.id}/stream`);
 
-    const interval = setInterval(() => {
-      refreshState(state.id);
-    }, 2000);
+    es.onmessage = () => { refreshState(state.id); };
+    es.addEventListener("stage", () => { refreshState(state.id); });
+    es.addEventListener("done", () => { es.close(); refreshState(state.id); });
+    es.onerror = () => { es.close(); };
 
-    return () => clearInterval(interval);
+    return () => { es.close(); };
   }, [state?.id, state?.stage]);
 
   async function initCodeGen(pipelineId: string) {

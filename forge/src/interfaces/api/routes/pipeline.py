@@ -4,9 +4,11 @@ Pipeline API Router
 Endpoints for the impact analysis pipeline.
 """
 
+import asyncio
+import json
 from typing import Optional
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
@@ -120,6 +122,47 @@ async def get_status(pipeline_id: str):
         raise HTTPException(404, f"Pipeline {pipeline_id} not found")
     
     return state.to_dict()
+
+
+@router.get("/{pipeline_id}/stream")
+async def stream_pipeline(pipeline_id: str):
+    """SSE stream of pipeline progress. Closes when terminal stage is reached."""
+    orch = get_orchestrator()
+
+    TERMINAL = {"awaiting_approval", "approved", "rejected", "failed"}
+
+    async def event_generator():
+        sent_count = 0
+        last_stage = None
+
+        while True:
+            state = orch.get_state(pipeline_id)
+
+            if not state:
+                yield f"event: error\ndata: {json.dumps({'error': 'Pipeline not found'})}\n\n"
+                return
+
+            entries = state.activity_log or []
+            for entry in entries[sent_count:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            sent_count = len(entries)
+
+            current_stage = state.stage.value if hasattr(state.stage, "value") else str(state.stage)
+            if current_stage != last_stage:
+                last_stage = current_stage
+                yield f"event: stage\ndata: {json.dumps({'stage': current_stage})}\n\n"
+
+            if current_stage in TERMINAL:
+                yield f"event: done\ndata: {json.dumps({'stage': current_stage, 'error': state.error})}\n\n"
+                return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{pipeline_id}/report", response_class=PlainTextResponse)
