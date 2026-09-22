@@ -69,66 +69,59 @@ export default function REPipeline() {
   const [session, setSession] = useState<ReverseEngineerSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const esRef = useRef<EventSource | null>(null);
   const mountedAtRef = useRef<number>(Date.now());
   const redirectedRef = useRef(false);
 
-  // ── Poll backend for session state ─────────────────────────────────────────
-  const slowedRef = useRef(false); // track whether we've already switched to slow interval
-
-  const poll = async () => {
-    if (!id) return;
-    try {
-      const s = await getREStatus(id);
-      setSession(s);
-
-      if (s.stage === "failed") {
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
-        setError(s.error ?? "Pipeline failed");
-        return;
-      }
-
-      if (s.stage === "complete") {
-        // Stop polling — redirect useEffect handles navigation
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
-        return;
-      }
-
-      // Once past fast initial stages, switch ONCE to 1500ms to reduce server load
-      const fastStages = ["uploading", "parsing", "extracting"];
-      if (!slowedRef.current && !fastStages.includes(s.stage)) {
-        slowedRef.current = true;
-        clearInterval(pollRef.current!);
-        pollRef.current = setInterval(poll, 1500);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load status");
-      clearInterval(pollRef.current!);
-      pollRef.current = null;
-    }
-  };
-
+  // ── SSE stream for live pipeline progress ──────────────────────────────────
   useEffect(() => {
-    slowedRef.current = false;
-    poll();
-    // Start fast (200ms) to catch stage 1+2 which complete in <100ms
-    pollRef.current = setInterval(poll, 200);
+    if (!id) return;
+
+    // Fetch initial state immediately (so UI isn't blank before first SSE event)
+    getREStatus(id).then(setSession).catch(() => {});
+
+    // Open SSE connection
+    const es = new EventSource(`/reverse-engineer/${id}/stream`);
+    esRef.current = es;
+
+    // Each `data:` event is a new activity log entry — refresh full session state
+    es.onmessage = () => {
+      getREStatus(id).then(setSession).catch(() => {});
+    };
+
+    // `stage` event fires on every stage transition
+    es.addEventListener("stage", () => {
+      getREStatus(id).then(setSession).catch(() => {});
+    });
+
+    // `done` event — pipeline finished, close stream
+    es.addEventListener("done", () => {
+      es.close();
+      getREStatus(id).then(setSession).catch(() => {});
+    });
+
+    es.onerror = () => {
+      es.close();
+    };
+
     return () => {
-      clearInterval(pollRef.current!);
-      pollRef.current = null;
+      es.close();
+      esRef.current = null;
     };
   }, [id]);
 
-  // ── Redirect AFTER React has rendered the completed session ────────────────
+  // ── Redirect when complete ─────────────────────────────────────────────────
   useEffect(() => {
     if (session?.stage === "complete" && !redirectedRef.current) {
       redirectedRef.current = true;
-      // poll() already cleared the interval — just navigate after brief delay
+      esRef.current?.close();
       const elapsed = Date.now() - mountedAtRef.current;
       const delay = Math.max(2000 - elapsed, 800);
       setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), delay);
+    }
+    if (session?.stage === "failed" && session.error) {
+      esRef.current?.close();
+      setError(session.error);
     }
   }, [session?.stage]);
 

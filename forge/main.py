@@ -309,7 +309,14 @@ if _has_frontend:
             raise HTTPException(status_code=404, detail="Static file not found")
         
         # Don't serve index.html for API paths - let them 404
-        api_prefixes = ("health", "impact", "graph", "pipeline/", "codegen/", "reverse-engineer/", "api", "docs", "openapi", "redoc")
+        # reverse-engineer SPA routes end in /pipeline or /spec — only block bare API paths
+        import re as _re
+        api_prefixes = ("health", "impact", "graph", "pipeline/", "codegen/", "api", "docs", "openapi", "redoc", "cache")
+        is_re_api = (
+            path == "reverse-engineer/start"
+            or _re.match(r"^reverse-engineer/[0-9a-f\-]{36}$", path) is not None
+            or _re.match(r"^reverse-engineer/[0-9a-f\-]{36}/(facts|spec|stream)", path) is not None
+        )
         
         if path.startswith(api_prefixes):
             from fastapi import HTTPException

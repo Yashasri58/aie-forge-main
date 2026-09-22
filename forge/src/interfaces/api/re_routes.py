@@ -13,7 +13,9 @@ Follows the same pattern as codegen_routes.py — module-level dep injection,
 set_re_orchestrator() called from main.py lifespan.
 """
 
+import asyncio
 import io
+import json
 import zipfile
 from typing import Optional
 
@@ -99,6 +101,56 @@ async def get_session(session_id: str):
         raise HTTPException(404, f"Session {session_id} not found")
 
     return session.to_dict()
+
+
+@router.get("/{session_id}/stream")
+async def stream_session(session_id: str):
+    """
+    SSE stream of pipeline progress.
+
+    Sends a `data:` event for every new activity_log entry and stage change.
+    Closes automatically when the pipeline reaches `complete` or `failed`.
+    """
+    orch = _get_orchestrator()
+
+    async def event_generator():
+        sent_count = 0
+        last_stage = None
+
+        while True:
+            session = orch.get_state(session_id)
+
+            if not session:
+                yield f"event: error\ndata: {json.dumps({'error': 'Session not found'})}\n\n"
+                return
+
+            # Send any new activity log entries
+            entries = session.activity_log or []
+            for entry in entries[sent_count:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            sent_count = len(entries)
+
+            # Send stage change event if stage changed
+            current_stage = session.stage.value if hasattr(session.stage, "value") else str(session.stage)
+            if current_stage != last_stage:
+                last_stage = current_stage
+                yield f"event: stage\ndata: {json.dumps({'stage': current_stage, 'detail': session.current_stage_detail})}\n\n"
+
+            # Terminal states — close stream
+            if current_stage in ("complete", "failed"):
+                yield f"event: done\ndata: {json.dumps({'stage': current_stage, 'error': session.error})}\n\n"
+                return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{session_id}/facts")
