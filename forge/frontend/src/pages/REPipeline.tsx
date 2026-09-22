@@ -114,27 +114,9 @@ export default function REPipeline() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session?.activity_log?.length]);
 
-  // ── Loading state (first poll not yet returned) ─────────────────────────────
-  if (!session && !error) {
-    return (
-      <div className="min-h-screen bg-[#0d1117] text-gray-100 flex flex-col">
-        <header className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-          <button onClick={() => navigate("/")} className="text-gray-400 hover:text-white transition-colors text-sm">
-            ← Dashboard
-          </button>
-          <span className="text-gray-600">/</span>
-          <span className="text-gray-300 font-medium">Reverse Engineer</span>
-          <span className="text-gray-600">/</span>
-          <span className="text-gray-400 font-mono text-xs">{id?.slice(0, 8)}…</span>
-        </header>
-        <main className="flex-1 flex flex-col items-center justify-center gap-4">
-          <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-          <p className="text-gray-400 text-sm">Starting pipeline…</p>
-        </main>
-      </div>
-    );
-  }
-
+  // ── Loading state (first poll not yet returned) — show stage UI immediately ──
+  // Don't show a blank loading screen; render the full pipeline layout right away.
+  // session will be null briefly until the first poll returns (~1s).
   const currentIdx = session ? stageIndex(session.stage) : 0;
 
   return (
