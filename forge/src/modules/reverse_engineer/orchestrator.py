@@ -210,6 +210,13 @@ class REOrchestrator:
         self._sessions[session.id] = session
         _save_session(session)
 
+        # Transition to PARSING immediately before firing background task
+        # so the first poll sees PARSING (not UPLOADING) since stage 1+2 complete in <100ms
+        session.stage = REStage.PARSING
+        session.current_stage_detail = "Parsing log file…"
+        session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
+        _save_session(session)
+
         # Fire pipeline in background
         asyncio.create_task(self._run_pipeline(session.id))
 
@@ -283,9 +290,12 @@ class REOrchestrator:
     # ─── Stage implementations ────────────────────────────────────────────────
 
     async def _stage_parse(self, session: RESession) -> None:
+        # Stage already set to PARSING in start() to avoid UPLOADING showing in UI
         session.stage = REStage.PARSING
         session.current_stage_detail = "Parsing log file…"
-        session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
+        # Only add activity if not already added by start()
+        if not any(a.get("message", "").startswith("Stage 1:") for a in session.activity_log):
+            session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
         _save_session(session)
 
         log_stage_start(orchestrator_logger, "ORCHESTRATOR:PARSING", session.log_file_name)
