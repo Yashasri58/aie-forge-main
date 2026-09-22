@@ -35,10 +35,11 @@ from .schemas import (
     ExtractedFacts,
 )
 
-# ─── LLM import (mirrors impact/agent.py pattern) ────────────────────────────
+# ─── LLM import ──────────────────────────────────────────────────────────────
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -191,7 +192,7 @@ class InferenceAgent:
     MODEL_NAME = "gemini-2.5-pro"
 
     def __init__(self) -> None:
-        self._model = None
+        self._client = None
         self._budget = REBudgetEnforcer(max_llm_calls=10)  # ASG in 1-2 calls max
         self._loop_detector = RELoopDetector()
         self._receipts = REToolReceiptLog()
@@ -201,16 +202,12 @@ class InferenceAgent:
                 import os
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if api_key:
-                    genai.configure(api_key=api_key)
-                    self._model = genai.GenerativeModel(
-                        model_name=self.MODEL_NAME,
-                        system_instruction=INFERENCE_SYSTEM,
-                    )
+                    self._client = genai.Client(api_key=api_key)
                     inference_logger.info(f"   InferenceAgent initialized with {self.MODEL_NAME}")
                 else:
                     inference_logger.warning("   GOOGLE_API_KEY not set — InferenceAgent will use mock mode")
             except Exception as e:
-                inference_logger.error(f"   Failed to initialize Gemini: {e}")
+                inference_logger.error(f"   Failed to initialize Gemini client: {e}")
 
     def _call_llm(self, prompt: str) -> str:
         """Make one LLM call with budget + loop detection."""
@@ -229,10 +226,16 @@ class InferenceAgent:
         self._budget.record_llm_call()
         self._receipts.log("inference_llm", {"prompt_len": len(prompt)}, 1)
 
-        if not self._model:
+        if not self._client:
             return self._mock_response()
 
-        response = self._model.generate_content(prompt)
+        response = self._client.models.generate_content(
+            model=self.MODEL_NAME,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=INFERENCE_SYSTEM,
+            ),
+        )
         return response.text
 
     def _mock_response(self) -> str:

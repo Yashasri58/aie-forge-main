@@ -32,7 +32,8 @@ from .schemas import (
 from .harness import REBudgetEnforcer, REToolReceiptLog
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -122,7 +123,7 @@ class SpecWriterAgent:
     MODEL_NAME = "gemini-2.5-flash"
 
     def __init__(self) -> None:
-        self._model = None
+        self._client = None
         self._budget = REBudgetEnforcer(max_llm_calls=15)  # 12 sections + retries
         self._receipts = REToolReceiptLog()
 
@@ -131,14 +132,10 @@ class SpecWriterAgent:
                 import os
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if api_key:
-                    genai.configure(api_key=api_key)
-                    self._model = genai.GenerativeModel(
-                        model_name=self.MODEL_NAME,
-                        system_instruction=SPEC_WRITER_SYSTEM,
-                    )
+                    self._client = genai.Client(api_key=api_key)
                     spec_logger.info(f"   SpecWriterAgent initialized with {self.MODEL_NAME}")
             except Exception as e:
-                spec_logger.error(f"   Failed to initialize Gemini: {e}")
+                spec_logger.error(f"   Failed to initialize Gemini client: {e}")
 
     def _call_llm(self, prompt: str, section_id: str) -> str:
         ok, err = self._budget.check()
@@ -149,10 +146,16 @@ class SpecWriterAgent:
         self._budget.record_llm_call()
         self._receipts.log("spec_writer_llm", {"section": section_id}, 1)
 
-        if not self._model:
+        if not self._client:
             return self._mock_section(section_id)
 
-        response = self._model.generate_content(prompt)
+        response = self._client.models.generate_content(
+            model=self.MODEL_NAME,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SPEC_WRITER_SYSTEM,
+            ),
+        )
         return response.text
 
     def _mock_section(self, section_id: str) -> str:
