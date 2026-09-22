@@ -7,7 +7,7 @@ Simple, focused, follows the plan exactly.
 Uses Gemini model selection based on task complexity:
 - Simple changes → gemini-2.5-flash-lite
 - Standard changes → gemini-2.5-flash
-- Complex changes → gemini-2.5-pro
+- Complex changes → gemini-3.1-pro-preview-customtools
 """
 
 import json

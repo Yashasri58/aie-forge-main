@@ -68,6 +68,7 @@ export default function REPipeline() {
   const [error, setError] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedAtRef = useRef<number>(Date.now());
 
   const poll = async () => {
     if (!id) return;
@@ -76,9 +77,11 @@ export default function REPipeline() {
       setSession(s);
 
       if (s.stage === "complete") {
-        // Navigate to spec viewer
         clearInterval(pollRef.current!);
-        setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), 800);
+        // Show logs for at least 2s before redirecting
+        const elapsed = Date.now() - mountedAtRef.current;
+        const delay = Math.max(2000 - elapsed, 800);
+        setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), delay);
       } else if (s.stage === "failed") {
         clearInterval(pollRef.current!);
         setError(s.error ?? "Pipeline failed");
@@ -91,7 +94,7 @@ export default function REPipeline() {
 
   useEffect(() => {
     poll();
-    pollRef.current = setInterval(poll, 2000);
+    pollRef.current = setInterval(poll, 1000);
     return () => clearInterval(pollRef.current!);
   }, [id]);
 
@@ -102,8 +105,20 @@ export default function REPipeline() {
 
   if (!session && !error) {
     return (
-      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
-        <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      <div className="min-h-screen bg-[#0d1117] text-gray-100 flex flex-col">
+        <header className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+          <button onClick={() => navigate("/")} className="text-gray-400 hover:text-white transition-colors text-sm">
+            ← Dashboard
+          </button>
+          <span className="text-gray-600">/</span>
+          <span className="text-gray-300 font-medium">Reverse Engineer</span>
+          <span className="text-gray-600">/</span>
+          <span className="text-gray-400 font-mono text-xs">{id?.slice(0, 8)}…</span>
+        </header>
+        <main className="flex-1 flex flex-col items-center justify-center gap-4">
+          <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          <p className="text-gray-400 text-sm">Starting pipeline…</p>
+        </main>
       </div>
     );
   }

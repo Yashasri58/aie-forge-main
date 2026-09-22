@@ -13,7 +13,7 @@ Tiers:
 - SIMPLE: Quick tasks, greetings, simple questions → gemini-2.5-flash-lite
 - MEDIUM: Standard implementation, refactoring → gemini-2.5-flash  
 - COMPLEX: Multi-file changes, debugging → gemini-2.5-flash (with thinking)
-- REASONING: Architecture design, complex planning → gemini-2.5-pro
+- REASONING: Architecture design, complex planning → gemini-3.1-pro-preview-customtools
 """
 
 import os
@@ -67,7 +67,7 @@ class RouterConfig:
                 "MEDIUM": "gemini-2.5-flash",
                 "COMPLEX": "gemini-2.5-flash",
                 # For REASONING: fallback to flash if pro is unavailable
-                "REASONING": ["gemini-2.5-pro", "gemini-2.5-flash"],
+                "REASONING": ["gemini-3.1-pro-preview-customtools", "gemini-2.5-flash"],
             }
         
         if self.keyword_rules is None:
@@ -194,7 +194,7 @@ class ForgeRouter:
         response = await router.complete(messages=[
             {"role": "user", "content": "Create an architecture for..."}
         ])
-        # → Automatically uses gemini-2.5-pro (REASONING tier)
+        # → Automatically uses gemini-3.1-pro-preview-customtools (REASONING tier)
         
         response = await router.complete(messages=[
             {"role": "user", "content": "Fix this typo"}
@@ -339,7 +339,7 @@ class ForgeRouter:
             return "gemini-2.5-flash-lite"
         
         if any(kw in last_user for kw in reasoning_keywords):
-            return "gemini-2.5-pro"
+            return "gemini-3.1-pro-preview-customtools"
         
         if any(kw in last_user for kw in complex_keywords):
             return "gemini-2.5-flash"
@@ -427,7 +427,7 @@ def get_model_for_agent(agent_type: str) -> str:
         Model name string
     """
     mapping = {
-        "design": "gemini-2.5-pro",
+        "design": "gemini-3.1-pro-preview-customtools",
         "implementation": "gemini-2.5-flash",
         "verification": "gemini-2.5-flash",
         "exploration": "gemini-2.5-flash-lite",
@@ -446,7 +446,7 @@ DEFAULT_MODELS = {
     ModelTier.SIMPLE: "gemini-2.5-flash-lite",
     ModelTier.MEDIUM: "gemini-2.5-flash",
     ModelTier.COMPLEX: "gemini-2.5-flash",
-    ModelTier.REASONING: "gemini-2.5-pro",
+    ModelTier.REASONING: "gemini-3.1-pro-preview-customtools",
 }
 
 # Keep TaskComplexity as alias for ModelTier

@@ -793,7 +793,7 @@ class VerifierAgent:
         
         # Use pro model for verification (same as Design Agent)
         # gemini-2.5-flash returns empty responses with tools
-        self._model = "gemini-2.5-pro"
+        self._model = "gemini-3.1-pro-preview-customtools"
         self._agent = self._create_agent()
         self._session_service = InMemorySessionService()
         self._session = None

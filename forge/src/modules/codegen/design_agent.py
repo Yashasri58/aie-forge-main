@@ -774,11 +774,11 @@ def find_tests(symbol_or_file: str) -> dict:
 # and use appropriate Gemini model for complexity. Upgrade path: implement
 # custom BaseLlm that wraps LLMRouter.
 
-def _create_design_agent(model: str = "gemini-2.5-pro") -> Agent:
+def _create_design_agent(model: str = "gemini-3.1-pro-preview-customtools") -> Agent:
     """
     Create the ADK agent with tools.
     
-    Uses gemini-2.5-pro by default for design tasks (complex reasoning needed).
+    Uses gemini-3.1-pro-preview-customtools by default for design tasks (complex reasoning needed).
     """
     return Agent(
         model=model,
@@ -812,7 +812,7 @@ class DesignAgent:
     - plan.json (Plan object)
     
     Model Selection:
-    - Uses gemini-2.5-pro by default (reasoning model for complex design)
+    - Uses gemini-3.1-pro-preview-customtools by default (reasoning model for complex design)
     - Can be overridden via model parameter
     
     Usage:
@@ -825,7 +825,7 @@ class DesignAgent:
         Args:
             graph_store: KuzuGraphStore instance
             services_path: Path to the services directory
-            model: Optional model override (default: gemini-2.5-pro)
+            model: Optional model override (default: gemini-3.1-pro-preview-customtools)
         """
         global _tools
         
@@ -834,7 +834,7 @@ class DesignAgent:
         _tools = DesignAgentTools(graph_store, services_path)
         
         # Design tasks need reasoning model
-        self._model = model or "gemini-2.5-pro"
+        self._model = model or "gemini-3.1-pro-preview-customtools"
         self._agent = _create_design_agent(self._model)
         self._session_service = InMemorySessionService()
         self._runner = None
