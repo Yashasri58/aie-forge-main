@@ -188,7 +188,9 @@ class GapAgent:
         prompt = build_gap_prompt(asg_json, facts_json)
 
         try:
-            raw_text = self._call_llm(prompt)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            raw_text = await loop.run_in_executor(None, self._call_llm, prompt)
         except Exception as e:
             log_stage_error(gap_logger, "GAP_AGENT", str(e))
             return {

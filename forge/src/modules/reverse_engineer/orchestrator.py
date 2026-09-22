@@ -72,18 +72,28 @@ def _save_session(session: RESession) -> None:
         state_dict["spec_sections"] = {
             k: v.to_dict() for k, v in session.spec_sections.items()
         }
-        with sqlite3.connect(str(_DB_PATH)) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO re_sessions
-                    (id, stage, created_at, updated_at, state_json)
-                VALUES (?, ?, COALESCE(
-                    (SELECT created_at FROM re_sessions WHERE id=?), ?
-                ), ?, ?)
-            """, (
-                session.id, session.stage.value, session.id,
-                session.created_at, time.time(),
-                json.dumps(state_dict, default=str),
-            ))
+        state_json = json.dumps(state_dict, default=str)
+        stage_val = session.stage.value
+        session_id = session.id
+        created_at = session.created_at
+
+        def _write():
+            with sqlite3.connect(str(_DB_PATH)) as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO re_sessions
+                        (id, stage, created_at, updated_at, state_json)
+                    VALUES (?, ?, COALESCE(
+                        (SELECT created_at FROM re_sessions WHERE id=?), ?
+                    ), ?, ?)
+                """, (
+                    session_id, stage_val, session_id,
+                    created_at, time.time(),
+                    state_json,
+                ))
+
+        # Fire-and-forget in a thread so we don't block the event loop
+        import threading
+        threading.Thread(target=_write, daemon=True).start()
     except Exception as e:
         orchestrator_logger.warning(f"[HARNESS] Session save failed (non-fatal): {e}")
 
@@ -303,7 +313,10 @@ class REOrchestrator:
         try:
             from .log_parser import LogParser
             parser = LogParser()
-            facts = parser.parse_file(session.log_file_path, session.id)
+            loop = asyncio.get_event_loop()
+            facts = await loop.run_in_executor(
+                None, parser.parse_file, session.log_file_path, session.id
+            )
 
             session.extracted_facts = dataclasses.asdict(facts)
             session.add_activity(
@@ -341,7 +354,10 @@ class REOrchestrator:
 
             # Restore ExtractedFacts from dict
             facts = _dict_to_extracted_facts(session.extracted_facts, session.id)
-            facts = extract_templates(session.log_file_path, facts)
+            loop = asyncio.get_event_loop()
+            facts = await loop.run_in_executor(
+                None, extract_templates, session.log_file_path, facts
+            )
 
             session.extracted_facts = dataclasses.asdict(facts)
             template_count = len(facts.log_templates)

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Clock, Database, FileText, Code, Search } from "lucide-react";
+import { ArrowLeft, Clock, Database, FileText, Code, Search, ChevronDown, ChevronRight } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Page, Card, Badge, Button } from "../components/ui";
 
 interface HistoryEntry {
@@ -43,7 +45,7 @@ export default function HistoryDetail() {
   const [entry, setEntry] = useState<HistoryEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<"input" | "output">("input");
+  const [activeSection, setActiveSection] = useState<"input" | "output">("output");
 
   useEffect(() => {
     if (!id) return;
@@ -96,7 +98,7 @@ export default function HistoryDetail() {
             className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             <ArrowLeft size={16} />
-            Past Requests & Results
+            Past Requests &amp; Results
           </button>
           <span className="text-[var(--color-glass-border)]">/</span>
           <span className="text-sm text-[var(--color-text-primary)] font-medium truncate max-w-xs">
@@ -128,7 +130,7 @@ export default function HistoryDetail() {
 
       {/* Tab selector */}
       <div className="flex gap-1 mb-4 p-1 bg-[var(--color-glass-bg)] rounded-xl w-fit border border-[var(--color-glass-border)]">
-        {(["input", "output"] as const).map((tab) => (
+        {(["output", "input"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveSection(tab)}
@@ -157,6 +159,86 @@ export default function HistoryDetail() {
         )}
       </motion.div>
     </Page>
+  );
+}
+
+/* ── Markdown renderer ────────────────────────────────────────────────────── */
+function MarkdownView({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => (
+          <h1 className="text-xl font-bold text-[var(--color-text-primary)] mt-6 mb-3 pb-2 border-b border-[var(--color-glass-border)]">{children}</h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="text-lg font-semibold text-[var(--color-text-primary)] mt-5 mb-2">{children}</h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="text-base font-semibold text-[var(--color-text-primary)] mt-4 mb-2">{children}</h3>
+        ),
+        h4: ({ children }) => (
+          <h4 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mt-3 mb-1">{children}</h4>
+        ),
+        p: ({ children }) => (
+          <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">{children}</p>
+        ),
+        ul: ({ children }) => (
+          <ul className="list-disc list-inside space-y-1 mb-3 text-sm text-[var(--color-text-secondary)]">{children}</ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="list-decimal list-inside space-y-1 mb-3 text-sm text-[var(--color-text-secondary)]">{children}</ol>
+        ),
+        li: ({ children }) => (
+          <li className="text-sm text-[var(--color-text-secondary)] leading-relaxed">{children}</li>
+        ),
+        code: ({ className, children, ...props }) => {
+          const isInline = !className;
+          return isInline ? (
+            <code className="px-1.5 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-accent)] text-xs font-mono" {...props}>
+              {children}
+            </code>
+          ) : (
+            <code className="block bg-[var(--color-glass-bg)] border border-[var(--color-glass-border)] rounded-lg p-3 text-xs font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap overflow-auto" {...props}>
+              {children}
+            </code>
+          );
+        },
+        pre: ({ children }) => (
+          <div className="mb-3">{children}</div>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-[var(--color-accent)] pl-3 my-3 text-sm text-[var(--color-text-muted)] italic">
+            {children}
+          </blockquote>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-auto mb-3">
+            <table className="w-full text-sm border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => (
+          <thead className="border-b border-[var(--color-glass-border)]">{children}</thead>
+        ),
+        th: ({ children }) => (
+          <th className="text-left px-3 py-1.5 text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">{children}</th>
+        ),
+        td: ({ children }) => (
+          <td className="px-3 py-1.5 text-[var(--color-text-secondary)] border-b border-[var(--color-glass-border)]">{children}</td>
+        ),
+        hr: () => (
+          <hr className="my-4 border-[var(--color-glass-border)]" />
+        ),
+        strong: ({ children }) => (
+          <strong className="font-semibold text-[var(--color-text-primary)]">{children}</strong>
+        ),
+        em: ({ children }) => (
+          <em className="italic text-[var(--color-text-muted)]">{children}</em>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }
 
@@ -248,24 +330,28 @@ function InputView({ entry }: { entry: HistoryEntry }) {
 function OutputView({ entry }: { entry: HistoryEntry }) {
   const output = entry.output as Record<string, unknown>;
 
+  /* ── Impact: markdown report ─────────────────────────────────────────── */
   if (entry.pipeline_type === "impact") {
     const report = (output.report as string) || "";
+    if (!report) {
+      return (
+        <Card className="p-5">
+          <p className="text-sm text-[var(--color-text-muted)]">No report saved</p>
+        </Card>
+      );
+    }
     return (
-      <Card className="p-5">
-        <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
-          Impact Report
-        </h3>
-        <pre className="text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap leading-relaxed font-mono overflow-auto max-h-[60vh]">
-          {report || "No report saved"}
-        </pre>
+      <Card className="p-6 overflow-auto max-h-[calc(100vh-280px)]">
+        <MarkdownView content={report} />
       </Card>
     );
   }
 
+  /* ── CodeGen: unified diffs ──────────────────────────────────────────── */
   if (entry.pipeline_type === "codegen") {
     const diffs = (output.diffs as Array<{ file?: string; task_id?: string; diff?: string; status?: string }>) || [];
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 overflow-auto max-h-[calc(100vh-280px)]">
         {diffs.length === 0 ? (
           <Card className="p-5">
             <p className="text-sm text-[var(--color-text-muted)]">No diffs saved</p>
@@ -289,47 +375,122 @@ function OutputView({ entry }: { entry: HistoryEntry }) {
     );
   }
 
+  /* ── Reverse Engineer: spec sections ─────────────────────────────────── */
   if (entry.pipeline_type === "reverse_engineer") {
-    const sections = (output.spec_sections as Record<string, { title?: string; content_md?: string; confidence?: number; gap_count?: number }>) || {};
-    const sectionList = Object.entries(sections);
-    return (
-      <div className="space-y-4">
-        {sectionList.length === 0 ? (
-          <Card className="p-5">
-            <p className="text-sm text-[var(--color-text-muted)]">No spec sections saved</p>
-          </Card>
-        ) : (
-          sectionList.map(([key, sec]) => (
-            <Card key={key} className="overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-glass-border)] bg-[var(--color-glass-bg)]">
-                <span className="text-sm font-medium text-[var(--color-text-primary)]">
-                  {sec.title || key.replace(/_/g, " ")}
-                </span>
-                <div className="flex items-center gap-2">
-                  {sec.confidence !== undefined && (
-                    <Badge variant="accent">{Math.round(sec.confidence * 100)}%</Badge>
-                  )}
-                  {sec.gap_count !== undefined && sec.gap_count > 0 && (
-                    <Badge variant="default">{sec.gap_count}g</Badge>
-                  )}
-                </div>
-              </div>
-              <div className="p-4 text-sm text-[var(--color-text-secondary)] leading-relaxed max-h-64 overflow-auto">
-                <pre className="whitespace-pre-wrap font-sans">
-                  {sec.content_md?.slice(0, 800) || ""}
-                  {(sec.content_md?.length || 0) > 800 ? "\n\n… (truncated)" : ""}
-                </pre>
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
-    );
+    return <REOutputView output={output} />;
   }
 
   return <JsonBlock data={output} />;
 }
 
+/* ── Reverse Engineer output — all sections, collapsible, full markdown ── */
+type SpecSectionData = {
+  title?: string;
+  content_md?: string;
+  confidence_score?: number;
+  gap_count?: number;
+  section_id?: string;
+};
+
+function REOutputView({ output }: { output: Record<string, unknown> }) {
+  const sections = (output.spec_sections as Record<string, SpecSectionData>) || {};
+  const sectionList = Object.entries(sections);
+  const [openSections, setOpenSections] = useState<Set<string>>(
+    () => new Set(sectionList.map(([k]) => k))  // all open by default
+  );
+
+  function toggle(key: string) {
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  if (sectionList.length === 0) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-[var(--color-text-muted)]">No spec sections saved</p>
+      </Card>
+    );
+  }
+
+  const totalSections = sectionList.length;
+  const avgConfidence = sectionList.reduce((sum, [, sec]) => sum + (sec.confidence_score ?? 0), 0) / totalSections;
+
+  return (
+    <div className="space-y-3 overflow-auto max-h-[calc(100vh-280px)]">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 px-1 mb-2 text-xs text-[var(--color-text-muted)]">
+        <span>{totalSections} sections</span>
+        <span>·</span>
+        <span>avg confidence: <span className="text-[var(--color-accent)]">{Math.round(avgConfidence * 100)}%</span></span>
+        <button
+          className="ml-auto text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          onClick={() => setOpenSections(openSections.size === totalSections ? new Set() : new Set(sectionList.map(([k]) => k)))}
+        >
+          {openSections.size === totalSections ? "Collapse all" : "Expand all"}
+        </button>
+      </div>
+
+      {sectionList.map(([key, sec], i) => {
+        const isOpen = openSections.has(key);
+        const confidence = sec.confidence_score ?? 0;
+        const confPct = Math.round(confidence * 100);
+        const confColor = confidence >= 0.7 ? "text-green-400" : confidence >= 0.4 ? "text-yellow-400" : "text-red-400";
+
+        return (
+          <motion.div
+            key={key}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.03 }}
+          >
+            <Card className="overflow-hidden">
+              {/* Section header — clickable */}
+              <button
+                onClick={() => toggle(key)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-glass-bg)] transition-colors"
+              >
+                <span className="text-[var(--color-text-muted)] shrink-0">
+                  {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                </span>
+
+                <span className="flex-1 text-sm font-semibold text-[var(--color-text-primary)]">
+                  {sec.title || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                </span>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {sec.gap_count !== undefined && sec.gap_count > 0 && (
+                    <Badge variant="default">{sec.gap_count} gap{sec.gap_count !== 1 ? "s" : ""}</Badge>
+                  )}
+                  {sec.confidence_score !== undefined && (
+                    <span className={`text-xs font-mono font-bold ${confColor}`}>
+                      {confPct}%
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              {/* Section body — full markdown, no truncation */}
+              {isOpen && (
+                <div className="border-t border-[var(--color-glass-border)] px-6 py-4 bg-[var(--color-bg-elevated)]">
+                  {sec.content_md ? (
+                    <MarkdownView content={sec.content_md} />
+                  ) : (
+                    <p className="text-sm text-[var(--color-text-muted)]">No content available</p>
+                  )}
+                </div>
+              )}
+            </Card>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── JSON fallback ────────────────────────────────────────────────────── */
 function JsonBlock({ data }: { data: unknown }) {
   return (
     <Card className="p-4">

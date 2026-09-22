@@ -92,27 +92,32 @@ export default function CodeGen() {
     setError(null);
 
     try {
-      // Try to start code generation
-      setStarting(true);
-      const codegenState = await startCodeGen(pipelineId);
+      // First, try to load existing codegen state (handles direct navigation to /gen/:codegenId)
+      let codegenState: CodeGenState | null = null;
+      try {
+        codegenState = await getCodeGenStatus(pipelineId);
+      } catch {
+        // Not a codegen ID — treat as pipeline ID and start new codegen
+      }
+
+      if (!codegenState) {
+        // Try to start code generation from a pipeline ID
+        setStarting(true);
+        codegenState = await startCodeGen(pipelineId);
+      }
+
       setState(codegenState);
 
       // Load plan if available
-      if (codegenState.plan) {
-        setPlan(codegenState.plan);
-      }
+      const [newPlan, newDiffs] = await Promise.all([
+        getCodeGenPlan(codegenState.id).catch(() => null),
+        getCodeGenDiffs(codegenState.id).catch(() => []),
+      ]);
+      if (newPlan) setPlan(newPlan);
+      if (newDiffs.length > 0) setDiffs(newDiffs);
 
-      // Load diffs if available
-      if (codegenState.diffs && codegenState.diffs.length > 0) {
-        setDiffs(codegenState.diffs);
-      }
     } catch (err: any) {
-      // If code gen already exists, load it
-      if (err.message?.includes("already exists")) {
-        await refreshState(err.codegenId);
-      } else {
-        setError(err.message || "Failed to start code generation");
-      }
+      setError(err.message || "Failed to load code generation");
     } finally {
       setLoading(false);
       setStarting(false);
@@ -159,14 +164,74 @@ export default function CodeGen() {
     return "pending";
   }
 
+  // While the initial POST /codegen/start is in-flight, show a full-screen
+  // "starting" view with the stage bar skeleton and a live SSE log feed.
   if (loading) {
     return (
-      <Page className="flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loader2 size={48} className="animate-spin text-[var(--color-accent)] mx-auto" />
-          <p className="text-[var(--color-text-muted)]">
-            {starting ? "Starting code generation..." : "Loading..."}
-          </p>
+      <Page>
+        <Header backTo="/" backLabel="Dashboard" step={{ current: 5, total: 5, label: "Code Generation" }} />
+
+        <div className="flex-1 flex gap-6 min-h-0">
+          {/* Left: pipeline skeleton */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Progress bar */}
+            <Card className="mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Loader2 size={18} className="animate-spin text-[var(--color-accent)]" />
+                <span className="font-medium text-[var(--color-text-primary)]">
+                  {starting ? "Starting Code Generation" : "Loading…"}
+                </span>
+              </div>
+              <Progress value={0} />
+            </Card>
+
+            {/* Stage steps skeleton */}
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
+              {STAGE_ORDER.slice(1).map((stage, i) => (
+                <div key={stage} className="flex items-center gap-2">
+                  {i > 0 && <div className="w-8 h-0.5 bg-[var(--color-glass-border)]" />}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]">
+                    {STAGE_LABELS[stage]}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Empty content area */}
+            <Card className="flex-1 flex items-center justify-center">
+              <div className="text-center space-y-3">
+                <Loader2 size={32} className="animate-spin text-[var(--color-accent)] mx-auto" />
+                <p className="text-[var(--color-text-muted)] text-sm">Initialising pipeline…</p>
+              </div>
+            </Card>
+          </div>
+
+          {/* Right: live log panel */}
+          <div className="w-80 flex flex-col gap-4">
+            <Card className="flex flex-col overflow-hidden flex-1">
+              <div className="flex items-center justify-between px-1 pb-2 border-b border-[var(--color-glass-border)]">
+                <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Activity</h3>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
+                  <span className="text-xs text-[var(--color-text-muted)]">Live</span>
+                </div>
+              </div>
+              <div className="space-y-1 overflow-y-auto pt-2 font-mono text-xs flex-1" ref={logEndRef as React.RefObject<HTMLDivElement>}>
+                <div className="flex gap-2">
+                  <span className="text-[var(--color-text-muted)] shrink-0 opacity-50">
+                    {new Date().toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                  <span className="text-[var(--color-text-muted)]">
+                    {starting ? "Starting code generation pipeline…" : "Loading session…"}
+                  </span>
+                </div>
+              </div>
+            </Card>
+
+            <Button variant="ghost" className="w-full" onClick={() => navigate("/")}>
+              Back to Dashboard
+            </Button>
+          </div>
         </div>
       </Page>
     );

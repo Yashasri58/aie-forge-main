@@ -119,13 +119,16 @@ class CodeGenOrchestrator:
         
         state.log(f"Starting code generation: {impact_report.get('change_request', '')[:100]}")
         
-        # Run the pipeline
-        try:
-            state = await self._run_pipeline(state)
-        except Exception as e:
-            state.stage = CodeGenStage.FAILED
-            state.error = str(e)
-            state.log(f"Pipeline failed: {e}", "error")
+        # Run the pipeline in the background so the HTTP response returns immediately
+        async def _run_and_catch():
+            try:
+                await self._run_pipeline(state)
+            except Exception as e:
+                state.stage = CodeGenStage.FAILED
+                state.error = str(e)
+                state.log(f"Pipeline failed: {e}", "error")
+
+        asyncio.create_task(_run_and_catch())
         
         return state
     

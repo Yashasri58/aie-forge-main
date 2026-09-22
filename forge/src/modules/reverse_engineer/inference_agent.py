@@ -336,7 +336,9 @@ class InferenceAgent:
 
         # ── Call LLM ────────────────────────────────────────────────────────
         try:
-            raw_text = self._call_llm(prompt)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            raw_text = await loop.run_in_executor(None, self._call_llm, prompt)
             inference_logger.debug(f"   LLM response length: {len(raw_text)} chars")
         except Exception as e:
             log_stage_error(inference_logger, "INFERENCE_AGENT", str(e))
@@ -349,7 +351,7 @@ class InferenceAgent:
             inference_logger.warning("   Failed to parse LLM response as JSON — retrying once")
             try:
                 retry_prompt = prompt + "\n\nYOUR PREVIOUS RESPONSE DID NOT CONTAIN VALID JSON.\nReturn ONLY a JSON object — no prose, no markdown fences around it, just the raw JSON."
-                raw_text2 = self._call_llm(retry_prompt)
+                raw_text2 = await loop.run_in_executor(None, self._call_llm, retry_prompt)
                 raw_dict = _extract_json_from_response(raw_text2)
             except Exception as re:
                 inference_logger.error(f"   Retry also failed: {re}")
