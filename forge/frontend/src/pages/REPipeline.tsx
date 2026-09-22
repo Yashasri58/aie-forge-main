@@ -74,39 +74,58 @@ export default function REPipeline() {
   const redirectedRef = useRef(false);
 
   // ── Poll backend for session state ─────────────────────────────────────────
+  const slowedRef = useRef(false); // track whether we've already switched to slow interval
+
   const poll = async () => {
     if (!id) return;
     try {
       const s = await getREStatus(id);
       setSession(s);
+
       if (s.stage === "failed") {
         clearInterval(pollRef.current!);
+        pollRef.current = null;
         setError(s.error ?? "Pipeline failed");
+        return;
       }
-      // Once past fast initial stages, slow poll to 1500ms to reduce server load
-      if (s.stage !== "uploading" && s.stage !== "parsing" && s.stage !== "extracting") {
+
+      if (s.stage === "complete") {
+        // Stop polling — redirect useEffect handles navigation
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        return;
+      }
+
+      // Once past fast initial stages, switch ONCE to 1500ms to reduce server load
+      const fastStages = ["uploading", "parsing", "extracting"];
+      if (!slowedRef.current && !fastStages.includes(s.stage)) {
+        slowedRef.current = true;
         clearInterval(pollRef.current!);
         pollRef.current = setInterval(poll, 1500);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load status");
       clearInterval(pollRef.current!);
+      pollRef.current = null;
     }
   };
 
   useEffect(() => {
+    slowedRef.current = false;
     poll();
     // Start fast (200ms) to catch stage 1+2 which complete in <100ms
     pollRef.current = setInterval(poll, 200);
-    return () => clearInterval(pollRef.current!);
+    return () => {
+      clearInterval(pollRef.current!);
+      pollRef.current = null;
+    };
   }, [id]);
 
   // ── Redirect AFTER React has rendered the completed session ────────────────
   useEffect(() => {
     if (session?.stage === "complete" && !redirectedRef.current) {
       redirectedRef.current = true;
-      clearInterval(pollRef.current!);
-      // Show logs for at least 2s before redirecting
+      // poll() already cleared the interval — just navigate after brief delay
       const elapsed = Date.now() - mountedAtRef.current;
       const delay = Math.max(2000 - elapsed, 800);
       setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), delay);
