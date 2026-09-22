@@ -80,7 +80,7 @@ class GapAgent:
     classification, not deep reasoning.
     """
 
-    MODEL_NAME = "gemini-2.5-flash"
+    MODEL_NAME = "gemini-3.5-flash"
 
     def __init__(self) -> None:
         self._client = None

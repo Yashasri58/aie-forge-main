@@ -189,7 +189,7 @@ class InferenceAgent:
     Produces an ApplicationSpecGraph with CONFIRMED/INFERRED/GAP confidence tags.
     """
 
-    MODEL_NAME = "gemini-2.5-pro"
+    MODEL_NAME = "gemini-3.1-pro-preview"
 
     def __init__(self) -> None:
         self._client = None
