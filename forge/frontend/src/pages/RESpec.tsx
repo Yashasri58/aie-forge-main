@@ -159,7 +159,7 @@ export default function RESpec() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-gray-100 flex flex-col">
+    <div className="h-screen bg-[#0d1117] text-gray-100 flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
         <button

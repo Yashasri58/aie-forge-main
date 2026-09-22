@@ -68,12 +68,13 @@ export default function ReverseEngineer() {
     setError(null);
     try {
       const session = await startReverseEngineer(file, comments || undefined);
+      // Navigate immediately — REPipeline will poll for progress
       navigate(`/reverse-engineer/${session.id}/pipeline`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start pipeline");
-    } finally {
       setLoading(false);
+      setError(err instanceof Error ? err.message : "Failed to start pipeline");
     }
+    // NOTE: don't setLoading(false) on success — we navigate away
   };
 
   const formatSize = (bytes: number) => {
