@@ -83,8 +83,11 @@ export default function REPipeline() {
         clearInterval(pollRef.current!);
         setError(s.error ?? "Pipeline failed");
       }
-      // Do NOT navigate here — let the useEffect below handle it so React
-      // renders the session data (logs, stage bar) before redirecting.
+      // Once past fast initial stages, slow poll to 1500ms to reduce server load
+      if (s.stage !== "uploading" && s.stage !== "parsing" && s.stage !== "extracting") {
+        clearInterval(pollRef.current!);
+        pollRef.current = setInterval(poll, 1500);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load status");
       clearInterval(pollRef.current!);
@@ -93,7 +96,8 @@ export default function REPipeline() {
 
   useEffect(() => {
     poll();
-    pollRef.current = setInterval(poll, 1000);
+    // Start fast (200ms) to catch stage 1+2 which complete in <100ms
+    pollRef.current = setInterval(poll, 200);
     return () => clearInterval(pollRef.current!);
   }, [id]);
 
