@@ -1,11 +1,13 @@
 /**
  * REPipeline — Live progress page for the Reverse Engineer pipeline.
  *
- * Polls GET /reverse-engineer/:id every 2 seconds.
+ * Polls GET /reverse-engineer/:id every 1 second.
  * Shows 6-stage progress bar + live activity log.
  * Auto-navigates to /reverse-engineer/:id/spec when stage=complete.
  *
- * Follows the same polling pattern as Pipeline.tsx.
+ * Key fix: navigate() is called from useEffect watching session.stage,
+ * NOT from inside the poll callback — this ensures React renders the
+ * session data (logs, stage bar) before the redirect fires.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -20,8 +22,8 @@ const STAGES: { id: REStage; label: string; icon: string; desc: string }[] = [
   { id: "uploading",  label: "Uploading",  icon: "📤", desc: "File received" },
   { id: "parsing",    label: "Parsing",    icon: "🔬", desc: "Deterministic log parsing" },
   { id: "extracting", label: "Templates",  icon: "🗂️", desc: "Drain3 template mining" },
-  { id: "inferring",  label: "Inferring",  icon: "🧠", desc: "Gemini 2.5 Pro inference" },
-  { id: "gap_review", label: "Gap Review", icon: "🔍", desc: "Gemini 2.5 Flash review" },
+  { id: "inferring",  label: "Inferring",  icon: "🧠", desc: "Gemini 3.1 Pro inference" },
+  { id: "gap_review", label: "Gap Review", icon: "🔍", desc: "Gemini 3.5 Flash review" },
   { id: "writing",    label: "Writing",    icon: "📝", desc: "Generating spec sections" },
   { id: "complete",   label: "Complete",   icon: "✅", desc: "Spec ready" },
 ];
@@ -69,23 +71,20 @@ export default function REPipeline() {
   const logEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedAtRef = useRef<number>(Date.now());
+  const redirectedRef = useRef(false);
 
+  // ── Poll backend for session state ─────────────────────────────────────────
   const poll = async () => {
     if (!id) return;
     try {
       const s = await getREStatus(id);
       setSession(s);
-
-      if (s.stage === "complete") {
-        clearInterval(pollRef.current!);
-        // Show logs for at least 2s before redirecting
-        const elapsed = Date.now() - mountedAtRef.current;
-        const delay = Math.max(2000 - elapsed, 800);
-        setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), delay);
-      } else if (s.stage === "failed") {
+      if (s.stage === "failed") {
         clearInterval(pollRef.current!);
         setError(s.error ?? "Pipeline failed");
       }
+      // Do NOT navigate here — let the useEffect below handle it so React
+      // renders the session data (logs, stage bar) before redirecting.
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load status");
       clearInterval(pollRef.current!);
@@ -98,11 +97,24 @@ export default function REPipeline() {
     return () => clearInterval(pollRef.current!);
   }, [id]);
 
-  // Auto-scroll activity log
+  // ── Redirect AFTER React has rendered the completed session ────────────────
+  useEffect(() => {
+    if (session?.stage === "complete" && !redirectedRef.current) {
+      redirectedRef.current = true;
+      clearInterval(pollRef.current!);
+      // Show logs for at least 2s before redirecting
+      const elapsed = Date.now() - mountedAtRef.current;
+      const delay = Math.max(2000 - elapsed, 800);
+      setTimeout(() => navigate(`/reverse-engineer/${id}/spec`), delay);
+    }
+  }, [session?.stage]);
+
+  // ── Auto-scroll activity log ────────────────────────────────────────────────
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session?.activity_log?.length]);
 
+  // ── Loading state (first poll not yet returned) ─────────────────────────────
   if (!session && !error) {
     return (
       <div className="min-h-screen bg-[#0d1117] text-gray-100 flex flex-col">
@@ -251,7 +263,7 @@ export default function REPipeline() {
 
         {/* Activity log */}
         {session && session.activity_log.length > 0 && (
-          <div className="rounded-xl border border-white/10 bg-black/40 p-5 space-y-2 max-h-64 overflow-y-auto font-mono">
+          <div className="rounded-xl border border-white/10 bg-black/40 p-5 space-y-2 max-h-96 overflow-y-auto font-mono">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider sticky top-0 bg-black/40 pb-1">
               Activity Log
             </h2>
