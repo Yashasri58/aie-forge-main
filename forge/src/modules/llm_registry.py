@@ -221,13 +221,11 @@ def _litellm_call(
     api_key, api_base = _get_litellm_config()
     service_account = os.environ.get("LITELLM_SERVICE_ACCOUNT", "")
 
-    # Internal Capgemini CA — disable SSL verification
-    http_client = httpx.Client(verify=False)
-    
     default_headers = {}
     if service_account:
         default_headers["x-service-account"] = service_account
 
+    http_client = httpx.Client(verify=False)
     client = openai.OpenAI(
         api_key=api_key,
         base_url=api_base,
