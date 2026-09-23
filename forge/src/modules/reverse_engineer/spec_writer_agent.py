@@ -149,14 +149,11 @@ class SpecWriterAgent:
         if not self._client:
             return self._mock_section(section_id)
 
-        response = self._client.models.generate_content(
-            model=self.MODEL_NAME,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=SPEC_WRITER_SYSTEM,
-            ),
-        )
-        return response.text
+        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
+        model = _resolve_model(self.MODEL_NAME)
+        if _get_provider() == "litellm":
+            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
+        return _gemini_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
 
     def _mock_section(self, section_id: str) -> str:
         title = SECTION_TITLES.get(section_id, section_id)

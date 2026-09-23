@@ -282,39 +282,10 @@ class ForgeRouter:
         max_tokens: int,
         **kwargs
     ) -> dict:
-        """Fallback completion without LiteLLM."""
-        import google.generativeai as genai
-        
-        genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-        
-        # Simple heuristic for model selection
+        """Fallback completion — routes via LLM registry (litellm or direct gemini)."""
+        from modules.llm_registry import codegen_fallback_complete
         model_name = self._simple_route(messages)
-        
-        model = genai.GenerativeModel(model_name)
-        
-        # Convert messages to Gemini format
-        contents = []
-        for msg in messages:
-            role = "user" if msg["role"] == "user" else "model"
-            contents.append({"role": role, "parts": [msg["content"]]})
-        
-        response = model.generate_content(
-            contents,
-            generation_config={
-                "temperature": temperature,
-                "max_output_tokens": max_tokens,
-            }
-        )
-        
-        return {
-            "choices": [{
-                "message": {
-                    "role": "assistant",
-                    "content": response.text,
-                }
-            }],
-            "model": model_name,
-        }
+        return await codegen_fallback_complete(messages, model_name, temperature, max_tokens)
     
     def _simple_route(self, messages: list[dict]) -> str:
         """Simple heuristic routing without LiteLLM."""
