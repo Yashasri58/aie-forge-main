@@ -58,8 +58,26 @@ def _get_litellm_config() -> tuple[str, str]:
 
 def _resolve_model(model_name: str) -> str:
     """
-    If LITELLM_MODEL is set, use it instead of the per-agent model name.
-    This allows a single override for all calls on the proxy.
+    Resolve the model name for DIRECT LLM calls (not ADK).
+    When using litellm provider, prefix model with 'gemini/' if not already prefixed.
+    The yodai.capgemini.com proxy requires this prefix for Gemini models.
+    """
+    override = os.environ.get("LITELLM_MODEL", "").strip()
+    if override:
+        return override
+
+    if _get_provider() == "litellm":
+        # Proxy requires gemini/ prefix for all Gemini models in direct calls
+        if not model_name.startswith("gemini/"):
+            return f"gemini/{model_name}"
+
+    return model_name
+
+
+def _resolve_adk_model(model_name: str) -> str:
+    """
+    Resolve the model name for ADK Agent(model=...) calls.
+    Returns the raw model name (no gemini/ prefix) — ADK wraps it with openai/.
     """
     override = os.environ.get("LITELLM_MODEL", "").strip()
     if override:
@@ -86,7 +104,7 @@ def get_adk_model(model_name: str) -> str:
         Model string ready for ADK Agent(model=...).
     """
     provider = _get_provider()
-    model = _resolve_model(model_name)
+    model = _resolve_adk_model(model_name)  # no gemini/ prefix — ADK wraps with openai/
 
     if provider == "litellm":
         api_key, api_base = _get_litellm_config()
