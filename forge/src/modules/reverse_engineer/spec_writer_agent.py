@@ -152,6 +152,11 @@ class SpecWriterAgent:
         if not self._model:
             return self._mock_section(section_id)
 
+        from modules.llm_registry import _get_provider, _resolve_model, _litellm_call
+        model = _resolve_model(self.MODEL_NAME)
+        if _get_provider() == "litellm":
+            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
+
         response = self._model.generate_content(prompt)
 
         # ── Token tracking ──────────────────────────────────────────────────
@@ -238,13 +243,19 @@ Set the `GOOGLE_API_KEY` environment variable to enable full spec generation.
             )
 
             try:
-                content_md = self._call_llm(prompt, section_id, pipeline_id)
+                import asyncio, functools
+                loop = asyncio.get_event_loop()
+                content_md = await loop.run_in_executor(
+                    None, functools.partial(self._call_llm, prompt, section_id, pipeline_id)
+                )
             except Exception as e:
                 log_stage_error(spec_logger, f"spec:{section_id}", str(e))
                 # One retry with a simpler prompt before giving up
                 try:
                     spec_logger.info(f"   Retrying section {section_id} after error: {e}")
-                    content_md = self._call_llm(prompt, section_id, pipeline_id)
+                    content_md = await loop.run_in_executor(
+                        None, functools.partial(self._call_llm, prompt, section_id, pipeline_id)
+                    )
                     spec_logger.info(f"   Retry succeeded for {section_id}")
                 except Exception as e2:
                     spec_logger.error(f"   Retry also failed for {section_id}: {e2}")

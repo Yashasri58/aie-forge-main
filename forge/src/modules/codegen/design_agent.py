@@ -834,7 +834,8 @@ class DesignAgent:
         _tools = DesignAgentTools(graph_store, services_path)
         
         # Design tasks need reasoning model
-        self._model = model or "gemini-2.5-pro"
+        from modules.llm_registry import get_adk_model
+        self._model = get_adk_model(model or "gemini-3.1-pro-preview-customtools")
         self._agent = _create_design_agent(self._model)
         self._session_service = InMemorySessionService()
         self._runner = None

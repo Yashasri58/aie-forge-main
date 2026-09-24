@@ -117,6 +117,11 @@ class GapAgent:
         if not self._model:
             return self._mock_response()
 
+        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
+        model = _resolve_model(self.MODEL_NAME)
+        if _get_provider() == "litellm":
+            return _litellm_call(model, prompt, GAP_SYSTEM, temperature=0.4, max_tokens=8192)
+
         response = self._model.generate_content(prompt)
 
         # ── Token tracking ──────────────────────────────────────────────────
@@ -203,7 +208,11 @@ class GapAgent:
         prompt = build_gap_prompt(asg_json, facts_json)
 
         try:
-            raw_text = self._call_llm(prompt, pipeline_id)
+            import asyncio, functools
+            loop = asyncio.get_event_loop()
+            raw_text = await loop.run_in_executor(
+                None, functools.partial(self._call_llm, prompt, pipeline_id)
+            )
         except Exception as e:
             log_stage_error(gap_logger, "GAP_AGENT", str(e))
             return {

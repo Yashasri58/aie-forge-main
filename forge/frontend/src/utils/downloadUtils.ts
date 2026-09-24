@@ -40,11 +40,6 @@ function pct(v: number | undefined): string {
   return v !== undefined ? `${Math.round(v * 100)}%` : "—";
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  impact: "Impact Analysis",
-  codegen: "Code Generation",
-  reverse_engineer: "Reverse Engineer",
-};
 
 // ─── Per-type Markdown builders ───────────────────────────────────────────────
 

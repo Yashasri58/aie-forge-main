@@ -232,6 +232,11 @@ class InferenceAgent:
         if not self._model:
             return self._mock_response()
 
+        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
+        model = _resolve_model(self.MODEL_NAME)
+        if _get_provider() == "litellm":
+            return _litellm_call(model, prompt, INFERENCE_SYSTEM, temperature=0.4, max_tokens=8192)
+
         response = self._model.generate_content(prompt)
 
         # ── Token tracking ──────────────────────────────────────────────────
@@ -244,7 +249,7 @@ class InferenceAgent:
                     model=self.MODEL_NAME,
                     input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
                     output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-                                reasoning_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
+                    reasoning_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
                     call_label="InferenceAgent._call_llm",
                 )
             except Exception:
@@ -351,7 +356,11 @@ class InferenceAgent:
 
         # ── Call LLM ────────────────────────────────────────────────────────
         try:
-            raw_text = self._call_llm(prompt, pipeline_id)
+            import asyncio, functools
+            loop = asyncio.get_event_loop()
+            raw_text = await loop.run_in_executor(
+                None, functools.partial(self._call_llm, prompt, pipeline_id)
+            )
             inference_logger.debug(f"   LLM response length: {len(raw_text)} chars")
         except Exception as e:
             log_stage_error(inference_logger, "INFERENCE_AGENT", str(e))
@@ -364,7 +373,9 @@ class InferenceAgent:
             inference_logger.warning("   Failed to parse LLM response as JSON — retrying once")
             try:
                 retry_prompt = prompt + "\n\nYOUR PREVIOUS RESPONSE DID NOT CONTAIN VALID JSON.\nReturn ONLY a JSON object — no prose, no markdown fences around it, just the raw JSON."
-                raw_text2 = self._call_llm(retry_prompt, pipeline_id)
+                raw_text2 = await loop.run_in_executor(
+                    None, functools.partial(self._call_llm, retry_prompt, pipeline_id)
+                )
                 raw_dict = _extract_json_from_response(raw_text2)
             except Exception as re:
                 inference_logger.error(f"   Retry also failed: {re}")

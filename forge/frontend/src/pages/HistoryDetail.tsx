@@ -36,7 +36,7 @@ function formatCost(usd: number): string {
 
 // ─── Token Usage Panel ─────────────────────────────────────────────────────
 
-function TokenPanel({ usage, entry }: { usage: TokenUsage | undefined; entry: HistoryEntry }) {
+function TokenPanel({ usage }: { usage: TokenUsage | undefined; entry?: HistoryEntry }) {
   const [expanded, setExpanded] = useState(false);
 
   const hasReal = usage && usage.totals && usage.totals.calls > 0;
