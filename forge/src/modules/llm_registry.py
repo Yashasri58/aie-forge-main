@@ -212,7 +212,8 @@ def _litellm_call(
     prompt: str,
     system_prompt: Optional[str],
     temperature: float,
-    max_tokens: int,
+    max_tokens: Optional[int] = None,
+    json_mode: bool = False,
 ) -> str:
     """OpenAI-compatible call via Capgemini LiteLLM proxy."""
     import httpx
@@ -238,13 +239,19 @@ def _litellm_call(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    logger.info(f"[LLM/litellm] → {api_base} model={model} prompt_chars={len(prompt)}")
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    logger.info(f"[LLM/litellm] → {api_base} model={model} prompt_chars={len(prompt)} json_mode={json_mode}")
+    
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    
+    response = client.chat.completions.create(**kwargs)
     content = response.choices[0].message.content or ""
     logger.debug(f"[LLM/litellm] ✓ response_chars={len(content)}")
     return content

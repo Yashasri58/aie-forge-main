@@ -155,7 +155,7 @@ class SpecWriterAgent:
         from modules.llm_registry import _get_provider, _resolve_model, _litellm_call
         model = _resolve_model(self.MODEL_NAME)
         if _get_provider() == "litellm":
-            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
+            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4)
 
         response = self._model.generate_content(prompt)
 
