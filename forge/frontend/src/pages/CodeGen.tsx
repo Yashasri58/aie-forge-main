@@ -259,6 +259,7 @@ export default function CodeGen() {
 
   const isTerminal = ["approved", "rejected", "failed"].includes(state.stage);
   const canReview = state.stage === "awaiting_approval";
+  const isInProgress = !isTerminal && !canReview; // still running
 
   return (
     <Page>
@@ -503,6 +504,31 @@ export default function CodeGen() {
 
           {/* Action Buttons */}
           <div className="space-y-3 mt-auto">
+
+            {/* Loading indicator — visible only while pipeline is running */}
+            {isInProgress && (
+              <Card className="border-[var(--color-accent)] bg-[var(--color-accent-subtle)]">
+                <div className="flex items-center gap-3">
+                  <Loader2 size={20} className="animate-spin text-[var(--color-accent)] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-accent)]">
+                      {STAGE_LABELS[state.stage] ?? "Generating…"}
+                    </p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                      Iteration {state.iteration}/{state.max_iterations || 3} · Please wait
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 h-1 w-full rounded-full bg-[var(--color-glass-border)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-accent)]"
+                    style={{ width: `${getStageProgress()}%`, transition: "width 0.6s ease" }}
+                  />
+                </div>
+              </Card>
+            )}
+
+            {/* Review & Approve — only at awaiting_approval */}
             {canReview && (
               <Button
                 variant="success"
@@ -515,7 +541,8 @@ export default function CodeGen() {
               </Button>
             )}
 
-            {!isTerminal && (
+            {/* Refresh — only when flow is complete (awaiting_approval or terminal) */}
+            {(canReview || isTerminal) && (
               <Button
                 variant="ghost"
                 className="w-full"
@@ -526,13 +553,16 @@ export default function CodeGen() {
               </Button>
             )}
 
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => navigate("/")}
-            >
-              Back to Dashboard
-            </Button>
+            {/* Back to Dashboard — only when not mid-run */}
+            {(canReview || isTerminal) && (
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => navigate("/")}
+              >
+                Back to Dashboard
+              </Button>
+            )}
           </div>
         </div>
       </div>
