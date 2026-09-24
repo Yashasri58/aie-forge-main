@@ -1102,6 +1102,31 @@ IMPORTANT:
         
         return plan
     
+    @staticmethod
+    def _sanitize_json_str(json_str: str) -> str:
+        """
+        Remove/escape control characters that cause JSON parse failures.
+
+        LLMs sometimes embed raw newlines or other control characters (0x00-0x1F,
+        excluding \t \n \r) inside JSON string values. json.loads() rejects these
+        with 'Invalid control character'. We fix them in-place so the plan can be
+        parsed and later re-serialized cleanly.
+        """
+        import re as _re
+        # Replace raw control characters inside JSON strings with their escape
+        # sequences. We target chars 0x00-0x1F except \t (0x09), \n (0x0A),
+        # \r (0x0D) which json handles natively.
+        def _fix_ctrl(m):
+            s = m.group(0)
+            # Replace bare control chars (not already escaped) with \\uXXXX
+            return _re.sub(
+                r'(?<!\\)[\x00-\x08\x0b\x0c\x0e-\x1f]',
+                lambda c: f'\\u{ord(c.group(0)):04x}',
+                s,
+            )
+        # Apply only inside string literals to avoid mangling structural JSON
+        return _re.sub(r'"(?:[^"\\]|\\.)*"', _fix_ctrl, json_str)
+
     def _parse_plan_response(self, response: str, change_request: str) -> Plan:
         """Parse the agent's response into a Plan object."""
         # Try to extract JSON
@@ -1117,6 +1142,7 @@ IMPORTANT:
             if match:
                 try:
                     json_str = match.group(1) if '```' in pattern else match.group(0)
+                    json_str = self._sanitize_json_str(json_str)
                     plan_data = json.loads(json_str)
                     logger.info("✅ Successfully parsed plan JSON")
                     break
