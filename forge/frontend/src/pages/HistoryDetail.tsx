@@ -216,8 +216,13 @@ export default function HistoryDetail() {
           </button>
           <span className="text-[var(--color-glass-border)]">/</span>
           <span className="text-sm text-[var(--color-text-primary)] font-medium truncate max-w-xs">
-            {entry.label}
+            {entry.label?.replace(/^\[REJECTED\]\s*/, "") ?? ""}
           </span>
+          {entry.label?.startsWith("[REJECTED]") && (
+            <span className="flex-shrink-0 px-2 py-0.5 rounded text-xs font-bold bg-[var(--color-error-subtle)] text-[var(--color-error)] border border-[var(--color-error)]">
+              REJECTED
+            </span>
+          )}
         </div>
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${typeConf.bg} ${typeConf.color}`}>
           {typeConf.icon}

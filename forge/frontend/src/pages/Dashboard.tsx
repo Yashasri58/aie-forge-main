@@ -380,8 +380,13 @@ export default function Dashboard() {
 
                       {/* Label */}
                       <span className="flex-1 text-sm text-[var(--color-text-primary)] truncate group-hover:text-[var(--color-accent)] transition-colors">
-                        {entry.label}
+                        {entry.label?.replace(/^\[REJECTED\]\s*/, "") ?? ""}
                       </span>
+                      {entry.label?.startsWith("[REJECTED]") && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[var(--color-error-subtle)] text-[var(--color-error)]">
+                          REJECTED
+                        </span>
+                      )}
 
                       {/* Use count */}
                       {entry.use_count > 0 && (

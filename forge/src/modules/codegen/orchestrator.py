@@ -537,6 +537,49 @@ class CodeGenOrchestrator:
         state.log(f"Changes rejected: {reason}", "warning")
         state.updated_at = time.time()
         
+        # ── DEMO CACHE: save rejected runs so they appear in history ─────────
+        if _CACHE_AVAILABLE and state.diffs:
+            try:
+                impact = state.impact_report or {}
+                change_req = impact.get("change_request", "Code generation")[:60]
+                services = impact.get("requirements", {}).get("services", []) if isinstance(impact.get("requirements"), dict) else []
+                label_base = f"{change_req} [{', '.join(services[:2])}]" if services else change_req
+                label = f"[REJECTED] {label_base}"  # tag it as rejected
+                cache_input = {
+                    "change_request": impact.get("change_request", ""),
+                    "services": services,
+                    "rejection_reason": reason or "Rejected by user",
+                }
+                token_usage = {}
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    _tracker = get_tracker()
+                    token_usage = _tracker.snapshot(state.id)
+                    pipeline_id_src = impact.get("pipeline_id", "")
+                    if not token_usage and pipeline_id_src:
+                        token_usage = _tracker.snapshot(pipeline_id_src)
+                    _tracker.clear(state.id)
+                    if pipeline_id_src:
+                        _tracker.clear(pipeline_id_src)
+                except Exception:
+                    pass
+                _get_cache().save(
+                    cache_id=state.id,
+                    pipeline_type="codegen",
+                    label=label,
+                    input_data=cache_input,
+                    output_data={
+                        "diffs": [d.__dict__ if hasattr(d, '__dict__') else d for d in state.diffs],
+                        "plan":  state.plan.to_dict() if state.plan else {},
+                        "rejected": True,
+                        "rejection_reason": reason or "Rejected by user",
+                    },
+                    token_usage=token_usage,
+                )
+                logger.info(f"[CACHE] CodeGen rejected run saved: id={state.id!r} label={label!r}")
+            except Exception as _ce:
+                logger.warning(f"[CACHE] Save rejected run failed (non-fatal): {_ce}")
+        
         return state
     
     async def refine_plan(self, state_id: str, feedback: str) -> CodeGenState:
