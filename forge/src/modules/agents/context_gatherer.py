@@ -267,12 +267,13 @@ class ContextGathererAgent(BaseADKAgent):
         self._current = {}
         self.reset_session()
     
-    async def process(self, input_data: dict) -> RequirementsOutput:
+    async def process(self, input_data: dict, pipeline_id: str = "") -> RequirementsOutput:
         """
         Process user message.
         
         Args:
-            input_data: {"message": str, "is_initial": bool}
+            input_data:  {"message": str, "is_initial": bool}
+            pipeline_id: Pipeline ID for token tracking
         """
         message = input_data.get("message", "")
         is_initial = input_data.get("is_initial", False)
@@ -290,7 +291,7 @@ class ContextGathererAgent(BaseADKAgent):
             prompt = f"Conversation so far:\n{history}\n\nUser's latest message: {message}"
         
         # Run agent
-        response = await self.run(prompt)
+        response = await self.run(prompt, pipeline_id=pipeline_id)
         
         # Parse response
         result = self.parse_json(response)

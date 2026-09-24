@@ -18,12 +18,13 @@ import {
 interface PageProps {
   children: ReactNode;
   className?: string;
+  scrollable?: boolean;
 }
 
-export function Page({ children, className }: PageProps) {
+export function Page({ children, className, scrollable }: PageProps) {
   return (
     <motion.div
-      className={clsx("page", className)}
+      className={clsx(scrollable ? "page-scrollable" : "page", className)}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}

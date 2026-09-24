@@ -49,6 +49,7 @@ async def list_cache(type: Optional[str] = Query(None, description="Filter by pi
             "last_used_at":  e["last_used_at"],
             "use_count":     e["use_count"],
             "has_output":    bool(e.get("output")),
+            "token_usage":   e.get("token_usage", {}),
         }
         for e in entries
     ]

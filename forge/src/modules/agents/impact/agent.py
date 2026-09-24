@@ -234,9 +234,8 @@ def query_cypher(cypher_query: str) -> dict:
 
 def _create_agent() -> Agent:
     """Create the ADK agent with all tools."""
-    from modules.llm_registry import get_adk_model
     return Agent(
-        model=get_adk_model("gemini-2.5-flash"),
+        model="gemini-2.5-flash",
         name="forge_impact_agent",
         instruction=SYSTEM_INSTRUCTION,
         description="Analyzes code dependencies and impact of changes using graph queries",
@@ -314,7 +313,7 @@ class ImpactAgent:
                 session_service=self.session_service
             )
     
-    async def analyze(self, query: str) -> str:
+    async def analyze(self, query: str, pipeline_id: str = "") -> str:
         """Analyze a query and return the response."""
         await self._ensure_session()
         
@@ -324,19 +323,46 @@ class ImpactAgent:
         )
         
         response_text = ""
+        # Accumulate across all events (per ADK docs: sum usage_metadata per turn)
+        _total_input = 0
+        _total_output = 0
+        _total_thinking = 0
+
         async for event in self.runner.run_async(
             user_id="developer",
             session_id=self.session.id,
             new_message=content
         ):
+            if pipeline_id:
+                _meta = getattr(event, "usage_metadata", None)
+                if _meta:
+                    _total_input    = max(_total_input,    getattr(_meta, "prompt_token_count",     0) or 0)
+                    _total_output   = max(_total_output,   getattr(_meta, "candidates_token_count", 0) or 0)
+                    _total_thinking = max(_total_thinking, getattr(_meta, "thoughts_token_count",   0) or 0)
+
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
                         response_text += part.text
-        
+
+        # Record once per analyze() call
+        if pipeline_id and (_total_input or _total_output or _total_thinking):
+            try:
+                from modules.cache.token_tracker import get_tracker
+                get_tracker().record(
+                    pipeline_id=pipeline_id,
+                    model="gemini-2.5-flash",
+                    input_tokens=_total_input,
+                    output_tokens=_total_output,
+                    reasoning_tokens=_total_thinking,
+                    call_label="ImpactAgent.analyze",
+                )
+            except Exception:
+                pass
+
         return response_text
     
-    async def analyze_for_pipeline(self, requirements: dict, iteration: int = 1, previous_tasks: list = None) -> str:
+    async def analyze_for_pipeline(self, requirements: dict, iteration: int = 1, previous_tasks: list = None, pipeline_id: str = "") -> str:
         """
         Analyze impacts for the pipeline - returns the LAYERED REPORT directly.
         
@@ -465,7 +491,7 @@ If no new impacts, state "No additional services affected" for Layer 1 and 2.
         _budget = BudgetEnforcer(max_llm_calls=50, max_tool_calls=200, max_seconds=600)
         _loop_detector = LoopDetector(window=5, threshold=3)
 
-        report = await self.analyze(query)
+        report = await self.analyze(query, pipeline_id=pipeline_id)
 
         # HARNESS ITEM 3: Verify the agent actually called graph tools
         ok, receipt_err = receipts_assert_used(min_calls=1)

@@ -255,6 +255,17 @@ body::before {
   overflow: hidden;
 }
 
+/* Used by pages that need full vertical scroll (e.g. HistoryDetail) */
+.page-scrollable {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-page);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Header bar */
 .header {
   display: flex;

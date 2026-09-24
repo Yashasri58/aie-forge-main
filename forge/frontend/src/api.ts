@@ -120,46 +120,17 @@ export async function getGraphStats(): Promise<{
   services: number;
   symbols: number;
   edges: number;
-  packages: number;
-  db_tables: number;
-  api_endpoints: number;
-  env_vars: number;
 }> {
   const res = await fetch("/graph/stats");
   const data = await parseJson<{
-    nodes: {
-      services: number;
-      symbols: number;
-      packages: number;
-      db_tables: number;
-      api_endpoints: number;
-      env_vars: number;
-      total: number;
-    };
-    edges: { calls: number; http_calls: number; depends_on: number; total: number };
+    nodes: { services: number; symbols: number; total: number };
+    edges: { calls: number; http_calls: number; total: number };
   }>(res);
   return {
     services: data.nodes.services,
     symbols: data.nodes.symbols,
     edges: data.edges.total,
-    packages: data.nodes.packages ?? 0,
-    db_tables: data.nodes.db_tables ?? 0,
-    api_endpoints: data.nodes.api_endpoints ?? 0,
-    env_vars: data.nodes.env_vars ?? 0,
   };
-}
-
-export interface ServiceEnrichment {
-  service: string;
-  packages: { name: string; version: string; dep_type: string }[];
-  db_tables: string[];
-  api_endpoints: { method: string; path: string; operation_id: string }[];
-  env_vars: string[];
-}
-
-export async function getServiceEnrichment(serviceName: string): Promise<ServiceEnrichment> {
-  const res = await fetch(`/graph/service/${encodeURIComponent(serviceName)}/enrichment`);
-  return parseJson<ServiceEnrichment>(res);
 }
 
 // ─── LEGACY STUBS (kept so existing components compile) ─────────────────────
@@ -471,6 +442,36 @@ export async function downloadRESpec(sessionId: string): Promise<string> {
 
 // ─── CACHE API ───────────────────────────────────────────────────────────────
 
+export interface TokenUsageByModel {
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  calls: number;
+  cost_usd: number;
+  price_input_per_m: number;
+  price_output_per_m: number;
+}
+
+export interface TokenUsage {
+  by_model: Record<string, TokenUsageByModel>;
+  totals: {
+    input_tokens: number;
+    output_tokens: number;
+    reasoning_tokens: number;
+    calls: number;
+    cost_usd: number;
+  };
+  call_log: Array<{
+    model: string;
+    input: number;
+    output: number;
+    reasoning: number;
+    cost_usd: number;
+    label: string;
+    ts: number;
+  }>;
+}
+
 export interface CacheEntry {
   id: string;
   pipeline_type: "impact" | "codegen" | "reverse_engineer";
@@ -479,6 +480,7 @@ export interface CacheEntry {
   last_used_at: number;
   use_count: number;
   has_output: boolean;
+  token_usage?: TokenUsage;
 }
 
 export async function listCache(type?: string): Promise<CacheEntry[]> {

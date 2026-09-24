@@ -4,10 +4,7 @@ Code Generation API Routes.
 Endpoints for the code generation pipeline.
 """
 
-import asyncio
-import json
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -64,32 +61,34 @@ class ApproveRequest(BaseModel):
 async def start_codegen(request: StartRequest):
     """
     Start code generation from an approved pipeline.
-    
-    Fetches the impact report from the pipeline and starts code generation.
-    
-    Returns:
-        CodeGenState with ID to track progress
+
+    Returns immediately with the initial state (stage=pending).
+    The full pipeline runs in a background task — poll GET /{state_id} for progress.
     """
     if not _codegen_orchestrator:
         raise HTTPException(status_code=503, detail="Code generation not initialized")
-    
+
     if not _pipeline_orchestrator:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
-    
+
     # Get the approved pipeline
     pipeline_state = _pipeline_orchestrator.get_state(request.pipeline_id)
     if not pipeline_state:
         raise HTTPException(status_code=404, detail=f"Pipeline {request.pipeline_id} not found")
-    
+
     # Verify it's approved
     if pipeline_state.stage.value != "approved":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Pipeline not approved. Current stage: {pipeline_state.stage.value}"
         )
-    
+
+    # Return existing codegen state if already started for this pipeline
+    existing = _codegen_orchestrator.get_state_by_pipeline(request.pipeline_id)
+    if existing:
+        return existing.to_dict()
+
     # Build impact report dict from pipeline state
-    # Extract the description from requirements (which is a RequirementsOutput object)
     requirements_data = pipeline_state.requirements
     change_request = ""
     if requirements_data:
@@ -97,7 +96,7 @@ async def start_codegen(request: StartRequest):
             change_request = requirements_data.description
         elif isinstance(requirements_data, dict):
             change_request = requirements_data.get('description', '')
-    
+
     impact_report = {
         "pipeline_id": request.pipeline_id,
         "change_request": change_request,
@@ -107,14 +106,31 @@ async def start_codegen(request: StartRequest):
             requirements_data.__dict__ if hasattr(requirements_data, '__dict__') else {}
         ),
     }
-    
-    try:
-        state = await _codegen_orchestrator.start(impact_report)
-        return state.to_dict()
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+
+    # Create initial state synchronously so we can return it immediately
+    from modules.codegen.schemas import CodeGenState as _CodeGenState
+    import asyncio
+
+    state = _CodeGenState.create(impact_report)
+    _codegen_orchestrator._states[state.id] = state
+    state.log(f"Starting code generation: {impact_report.get('change_request', '')[:100]}")
+
+    # Fire the actual pipeline in the background
+    async def _run():
+        try:
+            await _codegen_orchestrator._run_pipeline(state)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            from modules.codegen.schemas import CodeGenStage
+            state.stage = CodeGenStage.FAILED
+            state.error = str(e)
+            state.log(f"Pipeline failed: {e}", "error")
+
+    import asyncio
+    asyncio.create_task(_run())
+
+    return state.to_dict()
 
 
 @router.get("/{state_id}")
@@ -147,50 +163,6 @@ def _lookup_state(state_id: str):
     if not state:
         state = _codegen_orchestrator.get_state_by_pipeline(state_id)
     return state
-
-
-@router.get("/{state_id}/stream")
-async def stream_codegen(state_id: str):
-    """SSE stream of codegen progress. Closes when terminal stage is reached."""
-    if not _codegen_orchestrator:
-        raise HTTPException(status_code=503, detail="Code generation not initialized")
-
-    TERMINAL = {"complete", "failed", "approved", "rejected"}
-
-    async def event_generator():
-        sent_count = 0
-        last_stage = None
-
-        while True:
-            state = _codegen_orchestrator.get_state(state_id)
-            if not state:
-                state = _codegen_orchestrator.get_state_by_pipeline(state_id)
-
-            if not state:
-                yield f"event: error\ndata: {json.dumps({'error': 'State not found'})}\n\n"
-                return
-
-            entries = state.activity_log if hasattr(state, "activity_log") else []
-            for entry in (entries or [])[sent_count:]:
-                yield f"data: {json.dumps(entry)}\n\n"
-            sent_count = len(entries or [])
-
-            current_stage = state.stage.value if hasattr(state.stage, "value") else str(state.stage)
-            if current_stage != last_stage:
-                last_stage = current_stage
-                yield f"event: stage\ndata: {json.dumps({'stage': current_stage})}\n\n"
-
-            if current_stage in TERMINAL:
-                yield f"event: done\ndata: {json.dumps({'stage': current_stage})}\n\n"
-                return
-
-            await asyncio.sleep(0.5)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 @router.get("/{state_id}/plan")

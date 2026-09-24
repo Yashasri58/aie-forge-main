@@ -302,7 +302,7 @@ class PipelineOrchestrator:
         requirements = await self.context_gatherer.process({
             "message": clean_message,  # HARNESS C2: use sanitized message
             "is_initial": True
-        })
+        }, pipeline_id=state.id)
         
         state.updated_at = time.time()
         state.requirements = requirements
@@ -325,14 +325,6 @@ class PipelineOrchestrator:
         if not state:
             raise ValueError(f"Pipeline {pipeline_id} not found")
         
-        # Allow user to continue the conversation even if requirements were
-        # already marked ready (i.e. they clicked "Edit Requirements" on the
-        # approval page and are now sending a new message).
-        if state.stage == PipelineStage.REQUIREMENTS_READY:
-            state.stage = PipelineStage.GATHERING
-            state.current_question = None
-            _log.info("[ORCHESTRATOR]   ✏️  User is editing requirements — resetting to GATHERING")
-        
         if state.stage != PipelineStage.GATHERING:
             raise ValueError(f"Pipeline not in gathering stage")
         
@@ -341,7 +333,7 @@ class PipelineOrchestrator:
         requirements = await self.context_gatherer.process({
             "message": message,
             "is_initial": False
-        })
+        }, pipeline_id=state.id)
         
         state.updated_at = time.time()
         state.requirements = requirements
@@ -447,7 +439,7 @@ class PipelineOrchestrator:
                     gaps_count = len(state.verification.get('gaps', []))  # fixed: was 'missing_paths'
                     state.log_activity(f"Found {gaps_count} gaps to investigate from verification", "warning")
                     _log.warning(f"[ORCHESTRATOR]   🔍 Filling {gaps_count} gaps from previous iteration")
-                    report = await self._analyze_with_gaps(state.requirements, state.report, gaps_text)
+                    report = await self._analyze_with_gaps(state.requirements, state.report, gaps_text, state.id)
                     
                     # Fix 4: if the gap-fill returned a HARNESS ITEM 3 rejection
                     # (agent used 0 tool calls), keep the previous report instead
@@ -467,7 +459,8 @@ class PipelineOrchestrator:
                 else:
                     state.log_activity("Calling LLM to analyze change impact...", "info")
                     report = await self.impact_agent.analyze_for_pipeline(
-                        requirements=state.requirements
+                        requirements=state.requirements,
+                        pipeline_id=state.id
                     )
                     state.report = report
                 
@@ -649,11 +642,8 @@ class PipelineOrchestrator:
         
         return state
     
-    async def _analyze_with_gaps(self, requirements: dict, current_report: str, gaps_text: str) -> str:
+    async def _analyze_with_gaps(self, requirements: dict, current_report: str, gaps_text: str, pipeline_id: str = "") -> str:
         """Re-run analysis with specific gaps to fill."""
-        # Build enriched requirements with gap context
-        # Pass as a fresh analyze_for_pipeline call so the agent uses graph tools,
-        # not the conversational history (which causes empty responses on iteration 2+)
         import copy
         enriched = copy.deepcopy(requirements) if requirements else {}
         if isinstance(enriched, dict):
@@ -663,11 +653,10 @@ class PipelineOrchestrator:
                 f"GAPS TO FILL (from verification):\n{gaps_text}\n\n"
                 f"Previous report context (first 2000 chars):\n{current_report[:2000]}"
             )
-            # Add gap-filling flag so the prompt knows this is a retry
             enriched["_gap_fill_iteration"] = True
         
         _log.info(f"[ORCHESTRATOR]   🔄 Re-running analysis with gaps via analyze_for_pipeline (not conversational analyze)")
-        return await self.impact_agent.analyze_for_pipeline(requirements=enriched)
+        return await self.impact_agent.analyze_for_pipeline(requirements=enriched, pipeline_id=pipeline_id)
     
     async def approve(self, pipeline_id: str) -> PipelineState:
         """Approve the analysis."""
@@ -686,6 +675,14 @@ class PipelineOrchestrator:
             try:
                 req = state.requirements or {}
                 label = req.get("description", "Impact analysis")[:60] if isinstance(req, dict) else str(req)[:60]
+                # Grab real token usage accumulated during this pipeline run
+                token_usage = {}
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    token_usage = get_tracker().snapshot(pipeline_id)
+                    get_tracker().clear(pipeline_id)
+                except Exception:
+                    pass
                 _get_cache().save(
                     cache_id=pipeline_id,
                     pipeline_type="impact",
@@ -695,6 +692,7 @@ class PipelineOrchestrator:
                         "report":      state.report,
                         "report_json": state.report_json or {},
                     },
+                    token_usage=token_usage,
                 )
                 _log.info(f"[CACHE] Impact analysis saved: id={pipeline_id!r} label={label!r}")
             except Exception as _ce:

@@ -35,11 +35,10 @@ from .schemas import (
     ExtractedFacts,
 )
 
-# ─── LLM import ──────────────────────────────────────────────────────────────
+# ─── LLM import (mirrors impact/agent.py pattern) ────────────────────────────
 
 try:
-    from google import genai
-    from google.genai import types as genai_types
+    import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -189,10 +188,10 @@ class InferenceAgent:
     Produces an ApplicationSpecGraph with CONFIRMED/INFERRED/GAP confidence tags.
     """
 
-    MODEL_NAME = "gemini-3.1-pro-preview"
+    MODEL_NAME = "gemini-2.5-pro"
 
     def __init__(self) -> None:
-        self._client = None
+        self._model = None
         self._budget = REBudgetEnforcer(max_llm_calls=10)  # ASG in 1-2 calls max
         self._loop_detector = RELoopDetector()
         self._receipts = REToolReceiptLog()
@@ -202,14 +201,18 @@ class InferenceAgent:
                 import os
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if api_key:
-                    self._client = genai.Client(api_key=api_key)
+                    genai.configure(api_key=api_key)
+                    self._model = genai.GenerativeModel(
+                        model_name=self.MODEL_NAME,
+                        system_instruction=INFERENCE_SYSTEM,
+                    )
                     inference_logger.info(f"   InferenceAgent initialized with {self.MODEL_NAME}")
                 else:
                     inference_logger.warning("   GOOGLE_API_KEY not set — InferenceAgent will use mock mode")
             except Exception as e:
-                inference_logger.error(f"   Failed to initialize Gemini client: {e}")
+                inference_logger.error(f"   Failed to initialize Gemini: {e}")
 
-    def _call_llm(self, prompt: str) -> str:
+    def _call_llm(self, prompt: str, pipeline_id: str = "") -> str:
         """Make one LLM call with budget + loop detection."""
         # Budget check
         ok, err = self._budget.check()
@@ -226,14 +229,28 @@ class InferenceAgent:
         self._budget.record_llm_call()
         self._receipts.log("inference_llm", {"prompt_len": len(prompt)}, 1)
 
-        if not self._client:
+        if not self._model:
             return self._mock_response()
 
-        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
-        model = _resolve_model(self.MODEL_NAME)
-        if _get_provider() == "litellm":
-            return _litellm_call(model, prompt, INFERENCE_SYSTEM, temperature=0.4, max_tokens=8192)
-        return _gemini_call(model, prompt, INFERENCE_SYSTEM, temperature=0.4, max_tokens=8192)
+        response = self._model.generate_content(prompt)
+
+        # ── Token tracking ──────────────────────────────────────────────────
+        if pipeline_id:
+            try:
+                from modules.cache.token_tracker import get_tracker
+                meta = response.usage_metadata
+                get_tracker().record(
+                    pipeline_id=pipeline_id,
+                    model=self.MODEL_NAME,
+                    input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                    output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                reasoning_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
+                    call_label="InferenceAgent._call_llm",
+                )
+            except Exception:
+                pass
+
+        return response.text
 
     def _mock_response(self) -> str:
         """Return a minimal valid ASG for testing without API key."""
@@ -270,6 +287,7 @@ class InferenceAgent:
         facts: ExtractedFacts,
         user_comments: str = "",
         session_id: str = "",
+        pipeline_id: str = "",
     ) -> ApplicationSpecGraph:
         """
         Run the inference agent.
@@ -333,9 +351,7 @@ class InferenceAgent:
 
         # ── Call LLM ────────────────────────────────────────────────────────
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            raw_text = await loop.run_in_executor(None, self._call_llm, prompt)
+            raw_text = self._call_llm(prompt, pipeline_id)
             inference_logger.debug(f"   LLM response length: {len(raw_text)} chars")
         except Exception as e:
             log_stage_error(inference_logger, "INFERENCE_AGENT", str(e))
@@ -348,7 +364,7 @@ class InferenceAgent:
             inference_logger.warning("   Failed to parse LLM response as JSON — retrying once")
             try:
                 retry_prompt = prompt + "\n\nYOUR PREVIOUS RESPONSE DID NOT CONTAIN VALID JSON.\nReturn ONLY a JSON object — no prose, no markdown fences around it, just the raw JSON."
-                raw_text2 = await loop.run_in_executor(None, self._call_llm, retry_prompt)
+                raw_text2 = self._call_llm(retry_prompt, pipeline_id)
                 raw_dict = _extract_json_from_response(raw_text2)
             except Exception as re:
                 inference_logger.error(f"   Retry also failed: {re}")

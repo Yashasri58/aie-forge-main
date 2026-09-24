@@ -119,16 +119,13 @@ class CodeGenOrchestrator:
         
         state.log(f"Starting code generation: {impact_report.get('change_request', '')[:100]}")
         
-        # Run the pipeline in the background so the HTTP response returns immediately
-        async def _run_and_catch():
-            try:
-                await self._run_pipeline(state)
-            except Exception as e:
-                state.stage = CodeGenStage.FAILED
-                state.error = str(e)
-                state.log(f"Pipeline failed: {e}", "error")
-
-        asyncio.create_task(_run_and_catch())
+        # Run the pipeline
+        try:
+            state = await self._run_pipeline(state)
+        except Exception as e:
+            state.stage = CodeGenStage.FAILED
+            state.error = str(e)
+            state.log(f"Pipeline failed: {e}", "error")
         
         return state
     
@@ -142,6 +139,7 @@ class CodeGenOrchestrator:
         logger.info("🎨 Design Agent starting plan creation...")
         
         try:
+            self._design_agent._pipeline_id = state.id  # token tracking
             plan = await self._design_agent.create_plan(state.impact_report)
             state.plan = plan
             state.log(f"Plan created: {len(plan.tasks)} tasks, {len(plan.contracts)} contracts", "success")
@@ -251,6 +249,7 @@ class CodeGenOrchestrator:
         
         try:
             # Use Verifier Agent for intelligent verification
+            self._verifier._pipeline_id = state.id  # token tracking
             verification = await self._verifier.verify(
                 plan=plan,
                 diffs=successful_diffs,
@@ -411,6 +410,7 @@ class CodeGenOrchestrator:
         successful_diffs = [d for d in new_diffs if d.status == "success"]
         
         try:
+            self._verifier._pipeline_id = state.id  # token tracking
             verification = await self._verifier.verify(
                 plan=state.plan,
                 diffs=successful_diffs,
@@ -481,6 +481,21 @@ class CodeGenOrchestrator:
                     "change_request": impact.get("change_request", ""),
                     "services": services,
                 }
+                # Grab token usage — codegen uses the pipeline_id from the impact report
+                token_usage = {}
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    _tracker = get_tracker()
+                    # Try both the codegen state ID and the originating pipeline ID
+                    token_usage = _tracker.snapshot(state.id)
+                    pipeline_id_src = impact.get("pipeline_id", "")
+                    if not token_usage and pipeline_id_src:
+                        token_usage = _tracker.snapshot(pipeline_id_src)
+                    _tracker.clear(state.id)
+                    if pipeline_id_src:
+                        _tracker.clear(pipeline_id_src)
+                except Exception:
+                    pass
                 _get_cache().save(
                     cache_id=state.id,
                     pipeline_type="codegen",
@@ -490,6 +505,7 @@ class CodeGenOrchestrator:
                         "diffs": [d.__dict__ if hasattr(d, '__dict__') else d for d in state.diffs],
                         "plan":  state.plan.to_dict() if state.plan else {},
                     },
+                    token_usage=token_usage,
                 )
                 logger.info(f"[CACHE] CodeGen saved: id={state.id!r} label={label!r}")
             except Exception as _ce:

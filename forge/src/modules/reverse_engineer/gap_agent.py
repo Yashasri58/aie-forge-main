@@ -34,8 +34,7 @@ from .schemas import (
 from .harness import REBudgetEnforcer, REToolReceiptLog, RELoopDetector
 
 try:
-    from google import genai
-    from google.genai import types as genai_types
+    import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -80,10 +79,10 @@ class GapAgent:
     classification, not deep reasoning.
     """
 
-    MODEL_NAME = "gemini-3.5-flash"
+    MODEL_NAME = "gemini-2.5-flash"
 
     def __init__(self) -> None:
-        self._client = None
+        self._model = None
         self._budget = REBudgetEnforcer(max_llm_calls=5)
         self._receipts = REToolReceiptLog()
 
@@ -92,12 +91,16 @@ class GapAgent:
                 import os
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if api_key:
-                    self._client = genai.Client(api_key=api_key)
+                    genai.configure(api_key=api_key)
+                    self._model = genai.GenerativeModel(
+                        model_name=self.MODEL_NAME,
+                        system_instruction=GAP_SYSTEM,
+                    )
                     gap_logger.info(f"   GapAgent initialized with {self.MODEL_NAME}")
             except Exception as e:
-                gap_logger.error(f"   Failed to initialize Gemini client: {e}")
+                gap_logger.error(f"   Failed to initialize Gemini: {e}")
 
-    def _call_llm(self, prompt: str) -> str:
+    def _call_llm(self, prompt: str, pipeline_id: str = "") -> str:
         ok, err = self._budget.check()
         if not ok:
             raise RuntimeError(f"[HARNESS BUDGET] {err}")
@@ -111,14 +114,28 @@ class GapAgent:
         self._budget.record_llm_call()
         self._receipts.log("gap_review_llm", {"prompt_len": len(prompt)}, 1)
 
-        if not self._client:
+        if not self._model:
             return self._mock_response()
 
-        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
-        model = _resolve_model(self.MODEL_NAME)
-        if _get_provider() == "litellm":
-            return _litellm_call(model, prompt, GAP_SYSTEM, temperature=0.4, max_tokens=8192)
-        return _gemini_call(model, prompt, GAP_SYSTEM, temperature=0.4, max_tokens=8192)
+        response = self._model.generate_content(prompt)
+
+        # ── Token tracking ──────────────────────────────────────────────────
+        if pipeline_id:
+            try:
+                from modules.cache.token_tracker import get_tracker
+                meta = response.usage_metadata
+                get_tracker().record(
+                    pipeline_id=pipeline_id,
+                    model=self.MODEL_NAME,
+                    input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                    output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                reasoning_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
+                    call_label="GapAgent._call_llm",
+                )
+            except Exception:
+                pass
+
+        return response.text
 
     def _mock_response(self) -> str:
         return json.dumps({
@@ -147,6 +164,7 @@ class GapAgent:
         self,
         asg: ApplicationSpecGraph,
         facts: ExtractedFacts,
+        pipeline_id: str = "",
     ) -> Dict[str, Any]:
         """
         Review the ASG for gaps and over-confident claims.
@@ -185,9 +203,7 @@ class GapAgent:
         prompt = build_gap_prompt(asg_json, facts_json)
 
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            raw_text = await loop.run_in_executor(None, self._call_llm, prompt)
+            raw_text = self._call_llm(prompt, pipeline_id)
         except Exception as e:
             log_stage_error(gap_logger, "GAP_AGENT", str(e))
             return {

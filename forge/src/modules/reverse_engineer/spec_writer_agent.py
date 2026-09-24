@@ -32,8 +32,7 @@ from .schemas import (
 from .harness import REBudgetEnforcer, REToolReceiptLog
 
 try:
-    from google import genai
-    from google.genai import types as genai_types
+    import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -120,10 +119,10 @@ class SpecWriterAgent:
     One call per section, sequential, Gemini 2.5 Flash.
     """
 
-    MODEL_NAME = "gemini-3.8-flash"
+    MODEL_NAME = "gemini-2.5-flash"
 
     def __init__(self) -> None:
-        self._client = None
+        self._model = None
         self._budget = REBudgetEnforcer(max_llm_calls=15)  # 12 sections + retries
         self._receipts = REToolReceiptLog()
 
@@ -132,12 +131,16 @@ class SpecWriterAgent:
                 import os
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if api_key:
-                    self._client = genai.Client(api_key=api_key)
+                    genai.configure(api_key=api_key)
+                    self._model = genai.GenerativeModel(
+                        model_name=self.MODEL_NAME,
+                        system_instruction=SPEC_WRITER_SYSTEM,
+                    )
                     spec_logger.info(f"   SpecWriterAgent initialized with {self.MODEL_NAME}")
             except Exception as e:
-                spec_logger.error(f"   Failed to initialize Gemini client: {e}")
+                spec_logger.error(f"   Failed to initialize Gemini: {e}")
 
-    def _call_llm(self, prompt: str, section_id: str) -> str:
+    def _call_llm(self, prompt: str, section_id: str, pipeline_id: str = "") -> str:
         ok, err = self._budget.check()
         if not ok:
             raise RuntimeError(f"[HARNESS BUDGET] {err}")
@@ -146,14 +149,28 @@ class SpecWriterAgent:
         self._budget.record_llm_call()
         self._receipts.log("spec_writer_llm", {"section": section_id}, 1)
 
-        if not self._client:
+        if not self._model:
             return self._mock_section(section_id)
 
-        from modules.llm_registry import _get_provider, _resolve_model, _gemini_call, _litellm_call
-        model = _resolve_model(self.MODEL_NAME)
-        if _get_provider() == "litellm":
-            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
-        return _gemini_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4, max_tokens=8192)
+        response = self._model.generate_content(prompt)
+
+        # ── Token tracking ──────────────────────────────────────────────────
+        if pipeline_id:
+            try:
+                from modules.cache.token_tracker import get_tracker
+                meta = response.usage_metadata
+                get_tracker().record(
+                    pipeline_id=pipeline_id,
+                    model=self.MODEL_NAME,
+                    input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                    output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                reasoning_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
+                    call_label=f"SpecWriterAgent.{section_id}",
+                )
+            except Exception:
+                pass
+
+        return response.text
 
     def _mock_section(self, section_id: str) -> str:
         title = SECTION_TITLES.get(section_id, section_id)
@@ -171,6 +188,7 @@ Set the `GOOGLE_API_KEY` environment variable to enable full spec generation.
         facts: ExtractedFacts,
         user_comments: str = "",
         session_callback=None,
+        pipeline_id: str = "",
     ) -> Dict[str, SpecSection]:
         """
         Generate all 11 spec sections.
@@ -220,19 +238,13 @@ Set the `GOOGLE_API_KEY` environment variable to enable full spec generation.
             )
 
             try:
-                import asyncio, functools
-                loop = asyncio.get_event_loop()
-                content_md = await loop.run_in_executor(
-                    None, functools.partial(self._call_llm, prompt, section_id)
-                )
+                content_md = self._call_llm(prompt, section_id, pipeline_id)
             except Exception as e:
                 log_stage_error(spec_logger, f"spec:{section_id}", str(e))
                 # One retry with a simpler prompt before giving up
                 try:
                     spec_logger.info(f"   Retrying section {section_id} after error: {e}")
-                    content_md = await loop.run_in_executor(
-                        None, functools.partial(self._call_llm, prompt, section_id)
-                    )
+                    content_md = self._call_llm(prompt, section_id, pipeline_id)
                     spec_logger.info(f"   Retry succeeded for {section_id}")
                 except Exception as e2:
                     spec_logger.error(f"   Retry also failed for {section_id}: {e2}")

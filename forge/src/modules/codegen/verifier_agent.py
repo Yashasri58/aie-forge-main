@@ -793,12 +793,12 @@ class VerifierAgent:
         
         # Use pro model for verification (same as Design Agent)
         # gemini-2.5-flash returns empty responses with tools
-        from modules.llm_registry import get_adk_model
-        self._model = get_adk_model("gemini-3.1-pro-preview-customtools")
+        self._model = "gemini-2.5-pro"
         self._agent = self._create_agent()
         self._session_service = InMemorySessionService()
         self._session = None
         self._runner = None
+        self._pipeline_id = ""  # Set by orchestrator for token tracking
     
     def _create_agent(self) -> Agent:
         """Create the ADK agent with tools."""
@@ -940,6 +940,9 @@ If everything looks correct, return {{"passed": true, "issues": [], "summary": "
         response_text = ""
         event_count = 0
         all_texts = []  # Collect all text parts for debugging
+        _total_input = 0
+        _total_output = 0
+        _total_thinking = 0
         try:
             logger.info("   └─ Calling Verifier LLM...")
             async for event in self._runner.run_async(
@@ -948,6 +951,15 @@ If everything looks correct, return {{"passed": true, "issues": [], "summary": "
                 new_message=content
             ):
                 event_count += 1
+
+                # Accumulate token counts from every event (per ADK docs)
+                if hasattr(self, '_pipeline_id') and self._pipeline_id:
+                    _meta = getattr(event, "usage_metadata", None)
+                    if _meta:
+                        _total_input    = max(_total_input,    getattr(_meta, "prompt_token_count",     0) or 0)
+                        _total_output   = max(_total_output,   getattr(_meta, "candidates_token_count", 0) or 0)
+                        _total_thinking = max(_total_thinking, getattr(_meta, "thoughts_token_count",   0) or 0)
+
                 # Log event details for debugging
                 has_content = hasattr(event, 'content') and event.content and event.content.parts
                 is_final = event.is_final_response()
@@ -974,6 +986,21 @@ If everything looks correct, return {{"passed": true, "issues": [], "summary": "
                     for part in event.content.parts:
                         if hasattr(part, 'text') and part.text:
                             response_text = part.text  # Use final response
+
+            # Record token usage once after the full run
+            if hasattr(self, '_pipeline_id') and self._pipeline_id and (_total_input or _total_output or _total_thinking):
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    get_tracker().record(
+                        pipeline_id=self._pipeline_id,
+                        model=self._model,
+                        input_tokens=_total_input,
+                        output_tokens=_total_output,
+                        reasoning_tokens=_total_thinking,
+                        call_label="VerifierAgent.verify",
+                    )
+                except Exception:
+                    pass
             
             # If no final response text, use accumulated texts
             if not response_text and all_texts:

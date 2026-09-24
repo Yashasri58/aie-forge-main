@@ -774,11 +774,11 @@ def find_tests(symbol_or_file: str) -> dict:
 # and use appropriate Gemini model for complexity. Upgrade path: implement
 # custom BaseLlm that wraps LLMRouter.
 
-def _create_design_agent(model: str = "gemini-3.1-pro-preview-customtools") -> Agent:
+def _create_design_agent(model: str = "gemini-2.5-pro") -> Agent:
     """
     Create the ADK agent with tools.
     
-    Uses gemini-3.1-pro-preview-customtools by default for design tasks (complex reasoning needed).
+    Uses gemini-2.5-pro by default for design tasks (complex reasoning needed).
     """
     return Agent(
         model=model,
@@ -812,7 +812,7 @@ class DesignAgent:
     - plan.json (Plan object)
     
     Model Selection:
-    - Uses gemini-3.1-pro-preview-customtools by default (reasoning model for complex design)
+    - Uses gemini-2.5-pro by default (reasoning model for complex design)
     - Can be overridden via model parameter
     
     Usage:
@@ -825,7 +825,7 @@ class DesignAgent:
         Args:
             graph_store: KuzuGraphStore instance
             services_path: Path to the services directory
-            model: Optional model override (default: gemini-3.1-pro-preview-customtools)
+            model: Optional model override (default: gemini-2.5-pro)
         """
         global _tools
         
@@ -834,12 +834,12 @@ class DesignAgent:
         _tools = DesignAgentTools(graph_store, services_path)
         
         # Design tasks need reasoning model
-        from modules.llm_registry import get_adk_model
-        self._model = get_adk_model(model or "gemini-3.1-pro-preview-customtools")
+        self._model = model or "gemini-2.5-pro"
         self._agent = _create_design_agent(self._model)
         self._session_service = InMemorySessionService()
         self._runner = None
         self._session = None
+        self._pipeline_id = ""  # Set by orchestrator for token tracking
     
     async def _ensure_session(self):
         """Ensure we have an active session."""
@@ -870,11 +870,23 @@ class DesignAgent:
         logger.debug(f"   └─ Prompt ({len(prompt)} chars): {prompt[:150].replace(chr(10),' ')!r}...")
         
         response_text = ""
+        _total_input = 0
+        _total_output = 0
+        _total_thinking = 0
+
         async for event in self._runner.run_async(
             user_id="developer",
             session_id=self._session.id,
             new_message=content
         ):
+            # Accumulate across all events per ADK docs
+            if hasattr(self, '_pipeline_id') and self._pipeline_id:
+                _meta = getattr(event, "usage_metadata", None)
+                if _meta:
+                    _total_input    = max(_total_input,    getattr(_meta, "prompt_token_count",     0) or 0)
+                    _total_output   = max(_total_output,   getattr(_meta, "candidates_token_count", 0) or 0)
+                    _total_thinking = max(_total_thinking, getattr(_meta, "thoughts_token_count",   0) or 0)
+
             if hasattr(event, 'tool_calls') and event.tool_calls:
                 for tc in event.tool_calls:
                     tool_calls += 1
@@ -888,6 +900,21 @@ class DesignAgent:
                 for part in event.content.parts:
                     if part.text:
                         response_text += part.text
+
+        # Record once per _run_agent() call
+        if hasattr(self, '_pipeline_id') and self._pipeline_id and (_total_input or _total_output or _total_thinking):
+            try:
+                from modules.cache.token_tracker import get_tracker
+                get_tracker().record(
+                    pipeline_id=self._pipeline_id,
+                    model=self._model,
+                    input_tokens=_total_input,
+                    output_tokens=_total_output,
+                    reasoning_tokens=_total_thinking,
+                    call_label="DesignAgent._run_agent",
+                )
+            except Exception:
+                pass
         
         duration_ms = (_t.time() - _start) * 1000
         logger.info(f"   └─ LLM done in {duration_ms:.0f}ms | {tool_calls} tool calls | response={len(response_text)} chars")

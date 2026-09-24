@@ -235,12 +235,13 @@ class BaseADKAgent(ABC):
                 session_service=self.session_service
             )
     
-    async def run(self, prompt: str) -> str:
+    async def run(self, prompt: str, pipeline_id: str = "") -> str:
         """
         Run the agent with a prompt.
         
         Args:
-            prompt: User prompt
+            prompt:      User prompt
+            pipeline_id: Pipeline ID for token tracking (optional)
             
         Returns:
             Agent response text
@@ -260,11 +261,25 @@ class BaseADKAgent(ABC):
         
         tool_call_count = 0
         response_text = ""
+        # Accumulate tokens across ALL events in this run (per ADK docs:
+        # usage_metadata is provided per-turn/event and should be summed).
+        _total_input = 0
+        _total_output = 0
+        _total_thinking = 0
+
         async for event in self.runner.run_async(
             user_id="pipeline",
             session_id=self.session.id,
             new_message=content
         ):
+            # Accumulate token counts from every event that has usage_metadata
+            if pipeline_id:
+                _meta = getattr(event, "usage_metadata", None)
+                if _meta:
+                    _total_input    = max(_total_input,    getattr(_meta, "prompt_token_count",     0) or 0)
+                    _total_output   = max(_total_output,   getattr(_meta, "candidates_token_count", 0) or 0)
+                    _total_thinking = max(_total_thinking, getattr(_meta, "thoughts_token_count",   0) or 0)
+
             # Log tool calls if present
             if hasattr(event, 'tool_calls') and event.tool_calls:
                 for tc in event.tool_calls:
@@ -290,6 +305,21 @@ class BaseADKAgent(ABC):
                 for part in event.content.parts:
                     if part.text:
                         response_text += part.text
+
+        # Record accumulated token usage once per agent run
+        if pipeline_id and (_total_input or _total_output or _total_thinking):
+            try:
+                from modules.cache.token_tracker import get_tracker
+                get_tracker().record(
+                    pipeline_id=pipeline_id,
+                    model=self.model,
+                    input_tokens=_total_input,
+                    output_tokens=_total_output,
+                    reasoning_tokens=_total_thinking,
+                    call_label=f"{self.name}.run",
+                )
+            except Exception:
+                pass
         
         # Log final response
         duration_ms = (time.time() - start_time) * 1000

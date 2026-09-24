@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS demo_cache (
     output_json  TEXT NOT NULL,
     created_at   REAL NOT NULL,
     last_used_at REAL NOT NULL,
-    use_count    INTEGER NOT NULL DEFAULT 0
+    use_count    INTEGER NOT NULL DEFAULT 0,
+    token_usage  TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline ON demo_cache(pipeline_type);
 CREATE INDEX IF NOT EXISTS idx_hash     ON demo_cache(input_hash);
@@ -69,6 +70,11 @@ def _connect() -> sqlite3.Connection:
 def _init():
     with _connect() as conn:
         conn.executescript(_DDL)
+        # Migrate existing DBs that don't have token_usage column yet
+        try:
+            conn.execute("ALTER TABLE demo_cache ADD COLUMN token_usage TEXT NOT NULL DEFAULT '{}'")
+        except Exception:
+            pass  # Column already exists
 
 
 # ─── DemoCache class ─────────────────────────────────────────────────────────
@@ -92,6 +98,7 @@ class DemoCache:
         label: str,
         input_data: Any,
         output_data: Any,
+        token_usage: Optional[Dict] = None,
     ) -> None:
         """
         Save (upsert) a pipeline result to cache.
@@ -102,9 +109,11 @@ class DemoCache:
             label:         Human-readable demo label
             input_data:    Raw input (dict/str — will be JSON-serialised)
             output_data:   Pipeline output (dict — will be JSON-serialised)
+            token_usage:   Real token counts from the Gemini API (optional)
         """
         input_json = json.dumps(input_data, default=str)
         output_json = json.dumps(output_data, default=str)
+        token_json = json.dumps(token_usage or {}, default=str)
         input_hash = _hash(input_json)
         now = time.time()
 
@@ -113,17 +122,18 @@ class DemoCache:
                 """
                 INSERT INTO demo_cache
                     (id, pipeline_type, label, input_hash, input_json,
-                     output_json, created_at, last_used_at, use_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                     output_json, created_at, last_used_at, use_count, token_usage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     label        = excluded.label,
                     input_hash   = excluded.input_hash,
                     input_json   = excluded.input_json,
                     output_json  = excluded.output_json,
-                    last_used_at = excluded.last_used_at
+                    last_used_at = excluded.last_used_at,
+                    token_usage  = excluded.token_usage
                 """,
                 (cache_id, pipeline_type, label, input_hash,
-                 input_json, output_json, now, now),
+                 input_json, output_json, now, now, token_json),
             )
         _log.info(f"[CACHE] Saved: id={cache_id!r} type={pipeline_type} label={label!r}")
 
@@ -237,6 +247,7 @@ def _row_to_dict(row: sqlite3.Row) -> Dict:
     # Deserialise JSON blobs
     d["input"] = json.loads(d.pop("input_json", "{}"))
     d["output"] = json.loads(d.pop("output_json", "{}"))
+    d["token_usage"] = json.loads(d.pop("token_usage", "{}") or "{}")
     return d
 
 

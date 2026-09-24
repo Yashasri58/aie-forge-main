@@ -72,28 +72,18 @@ def _save_session(session: RESession) -> None:
         state_dict["spec_sections"] = {
             k: v.to_dict() for k, v in session.spec_sections.items()
         }
-        state_json = json.dumps(state_dict, default=str)
-        stage_val = session.stage.value
-        session_id = session.id
-        created_at = session.created_at
-
-        def _write():
-            with sqlite3.connect(str(_DB_PATH)) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO re_sessions
-                        (id, stage, created_at, updated_at, state_json)
-                    VALUES (?, ?, COALESCE(
-                        (SELECT created_at FROM re_sessions WHERE id=?), ?
-                    ), ?, ?)
-                """, (
-                    session_id, stage_val, session_id,
-                    created_at, time.time(),
-                    state_json,
-                ))
-
-        # Fire-and-forget in a thread so we don't block the event loop
-        import threading
-        threading.Thread(target=_write, daemon=True).start()
+        with sqlite3.connect(str(_DB_PATH)) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO re_sessions
+                    (id, stage, created_at, updated_at, state_json)
+                VALUES (?, ?, COALESCE(
+                    (SELECT created_at FROM re_sessions WHERE id=?), ?
+                ), ?, ?)
+            """, (
+                session.id, session.stage.value, session.id,
+                session.created_at, time.time(),
+                json.dumps(state_dict, default=str),
+            ))
     except Exception as e:
         orchestrator_logger.warning(f"[HARNESS] Session save failed (non-fatal): {e}")
 
@@ -220,13 +210,6 @@ class REOrchestrator:
         self._sessions[session.id] = session
         _save_session(session)
 
-        # Transition to PARSING immediately before firing background task
-        # so the first poll sees PARSING (not UPLOADING) since stage 1+2 complete in <100ms
-        session.stage = REStage.PARSING
-        session.current_stage_detail = "Parsing log file…"
-        session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
-        _save_session(session)
-
         # Fire pipeline in background
         asyncio.create_task(self._run_pipeline(session.id))
 
@@ -300,12 +283,9 @@ class REOrchestrator:
     # ─── Stage implementations ────────────────────────────────────────────────
 
     async def _stage_parse(self, session: RESession) -> None:
-        # Stage already set to PARSING in start() to avoid UPLOADING showing in UI
         session.stage = REStage.PARSING
         session.current_stage_detail = "Parsing log file…"
-        # Only add activity if not already added by start()
-        if not any(a.get("message", "").startswith("Stage 1:") for a in session.activity_log):
-            session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
+        session.add_activity("Stage 1: Parsing log file", event_type="stage_change")
         _save_session(session)
 
         log_stage_start(orchestrator_logger, "ORCHESTRATOR:PARSING", session.log_file_name)
@@ -313,10 +293,7 @@ class REOrchestrator:
         try:
             from .log_parser import LogParser
             parser = LogParser()
-            loop = asyncio.get_event_loop()
-            facts = await loop.run_in_executor(
-                None, parser.parse_file, session.log_file_path, session.id
-            )
+            facts = parser.parse_file(session.log_file_path, session.id)
 
             session.extracted_facts = dataclasses.asdict(facts)
             session.add_activity(
@@ -354,10 +331,7 @@ class REOrchestrator:
 
             # Restore ExtractedFacts from dict
             facts = _dict_to_extracted_facts(session.extracted_facts, session.id)
-            loop = asyncio.get_event_loop()
-            facts = await loop.run_in_executor(
-                None, extract_templates, session.log_file_path, facts
-            )
+            facts = extract_templates(session.log_file_path, facts)
 
             session.extracted_facts = dataclasses.asdict(facts)
             template_count = len(facts.log_templates)
@@ -394,6 +368,7 @@ class REOrchestrator:
                 facts=facts,
                 user_comments=session.user_comments or "",
                 session_id=session.id,
+                pipeline_id=session.id,
             )
 
             session.asg = dataclasses.asdict(asg)
@@ -434,7 +409,7 @@ class REOrchestrator:
             asg = _dict_to_asg(session.asg, session.id)
             facts = _dict_to_extracted_facts(session.extracted_facts, session.id)
 
-            gap_result = await agent.run(asg=asg, facts=facts)
+            gap_result = await agent.run(asg=asg, facts=facts, pipeline_id=session.id)
 
             # Attach gap_review to ASG dict for later stages
             if session.asg:
@@ -494,6 +469,7 @@ class REOrchestrator:
                 facts=facts,
                 user_comments=session.user_comments or "",
                 session_callback=_on_section,
+                pipeline_id=session.id,
             )
 
             session.spec_sections = sections
@@ -516,6 +492,14 @@ class REOrchestrator:
                         "file_name": session.log_file_name,
                         "user_comments": session.user_comments or "",
                     }
+                    # Grab token usage accumulated during this RE pipeline run
+                    token_usage = {}
+                    try:
+                        from modules.cache.token_tracker import get_tracker
+                        token_usage = get_tracker().snapshot(session.id)
+                        get_tracker().clear(session.id)
+                    except Exception:
+                        pass
                     _get_demo_cache().save(
                         cache_id=session.id,
                         pipeline_type="reverse_engineer",
@@ -527,6 +511,7 @@ class REOrchestrator:
                                 for k, v in sections.items()
                             }
                         },
+                        token_usage=token_usage,
                     )
                     orchestrator_logger.info(f"[CACHE] RE spec saved: id={session.id!r} label={label!r}")
                 except Exception as _ce:
