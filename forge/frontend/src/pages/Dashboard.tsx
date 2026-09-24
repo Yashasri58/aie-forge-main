@@ -123,7 +123,7 @@ export default function Dashboard() {
   async function loadData() {
     try {
       const graphStats = await getGraphStats();
-      setStats(prev => ({ ...prev, ...graphStats }));
+      setStats(graphStats);
 
       const res = await fetch("/graph/overview");
       const data = await res.json();
