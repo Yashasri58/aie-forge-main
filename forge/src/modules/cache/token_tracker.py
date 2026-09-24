@@ -50,11 +50,15 @@ from typing import Dict, List, Optional
 
 PRICING: Dict[str, Dict[str, float]] = {
     # model_name → {input: $/1M, output: $/1M}
-    "gemini-2.5-pro":          {"input": 1.25,   "output": 10.00},
-    "gemini-2.5-flash":        {"input": 0.15,   "output": 0.60},
-    "gemini-2.5-flash-lite":   {"input": 0.075,  "output": 0.30},
+    "gemini-2.5-pro":                    {"input": 1.25,  "output": 10.00},
+    "gemini-3.1-pro-preview":            {"input": 1.25,  "output": 10.00},
+    "gemini-3.1-pro-preview-customtools":{"input": 1.25,  "output": 10.00},
+    "gemini-2.5-flash":                  {"input": 0.15,  "output": 0.60},
+    "gemini-2.5-flash-lite":             {"input": 0.075, "output": 0.30},
+    "gemini-3.5-flash":                  {"input": 0.15,  "output": 0.60},
+    "gemini-3.8-flash":                  {"input": 0.15,  "output": 0.60},
     # Fallback for unknown models
-    "_default":                {"input": 0.15,   "output": 0.60},
+    "_default":                          {"input": 0.15,  "output": 0.60},
 }
 
 
