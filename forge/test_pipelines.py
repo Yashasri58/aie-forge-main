@@ -307,14 +307,22 @@ async def test_re():
         info("Spec in DB (not in memory object) — check output dir or /cache")
 
     # ── Step 4: token tracking
-    from modules.cache.token_tracker import get_tracker
-    snap  = get_tracker().snapshot(sid)
-    calls = snap.get("totals", {}).get("calls", 0) if snap else 0
-    cost  = snap.get("totals", {}).get("cost_usd", 0) if snap else 0
-    if calls:
-        ok(f"Token tracking: {calls} LLM calls, ${cost:.4f} USD")
-    else:
-        fail("Token tracking: no data (non-fatal)")
+    # The RE orchestrator calls get_tracker().clear() after saving to demo cache,
+    # so the live tracker snapshot is empty by this point.
+    # Read from the demo cache entry instead.
+    try:
+        from modules.cache.demo_cache import get_cache
+        entry = get_cache().get(sid)
+        token_usage = entry.get("token_usage", {}) if entry else {}
+        totals = token_usage.get("totals", {})
+        calls = totals.get("calls", 0)
+        cost  = totals.get("cost_usd", 0)
+        if calls:
+            ok(f"Token tracking: {calls} LLM calls, ${cost:.4f} USD")
+        else:
+            fail("Token tracking: no data in cache (non-fatal)")
+    except Exception as e:
+        fail(f"Token tracking check failed: {e} (non-fatal)")
 
     ok(f"REVERSE ENGINEER PIPELINE — PASSED ({time.time()-t0:.0f}s)")
     return True
