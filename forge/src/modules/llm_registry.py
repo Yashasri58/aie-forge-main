@@ -257,6 +257,49 @@ def _litellm_call(
     return content
 
 
+def _litellm_call_with_usage(
+    model: str,
+    prompt: str,
+    system_prompt: Optional[str],
+    temperature: float,
+    max_tokens: Optional[int] = None,
+    json_mode: bool = False,
+) -> tuple:
+    """Same as _litellm_call but returns (text, input_tokens, output_tokens)."""
+    import httpx
+    import openai
+
+    api_key, api_base = _get_litellm_config()
+    service_account = os.environ.get("LITELLM_SERVICE_ACCOUNT", "")
+    default_headers = {}
+    if service_account:
+        default_headers["x-service-account"] = service_account
+
+    http_client = httpx.Client(verify=False)
+    client = openai.OpenAI(
+        api_key=api_key, base_url=api_base,
+        http_client=http_client, default_headers=default_headers,
+    )
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    kwargs = {"model": model, "messages": messages, "temperature": temperature}
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = client.chat.completions.create(**kwargs)
+    content = response.choices[0].message.content or ""
+    usage = response.usage
+    in_tok  = getattr(usage, "prompt_tokens", 0) or 0
+    out_tok = getattr(usage, "completion_tokens", 0) or 0
+    return content, in_tok, out_tok
+
+
 # ---------------------------------------------------------------------------
 # CodeGen llm_router compatibility shim
 # (ForgeRouter._fallback_complete uses direct genai — replace with this)

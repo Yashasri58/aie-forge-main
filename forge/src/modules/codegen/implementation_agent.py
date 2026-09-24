@@ -198,6 +198,7 @@ class ImplementationAgent:
         
         response_text = ""
         tool_call_count = 0
+        _tok_in = _tok_out = _tok_think = 0
         try:
             logger.info(f"   └─ Calling LLM ({model}), prompt={len(prompt)} chars...")
             async for event in runner.run_async(
@@ -205,6 +206,11 @@ class ImplementationAgent:
                 session_id=session.id,
                 new_message=content
             ):
+                _m = getattr(event, "usage_metadata", None)
+                if _m:
+                    _tok_in    = max(_tok_in,    getattr(_m, "prompt_token_count",     0) or 0)
+                    _tok_out   = max(_tok_out,   getattr(_m, "candidates_token_count", 0) or 0)
+                    _tok_think = max(_tok_think, getattr(_m, "thoughts_token_count",   0) or 0)
                 if hasattr(event, 'tool_calls') and event.tool_calls:
                     for tc in event.tool_calls:
                         tool_call_count += 1
@@ -218,7 +224,16 @@ class ImplementationAgent:
                     for part in event.content.parts:
                         if part.text:
                             response_text += part.text
-            
+
+            if pipeline_id and (_tok_in or _tok_out):
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    get_tracker().record(pipeline_id=pipeline_id, model=model,
+                        input_tokens=_tok_in, output_tokens=_tok_out,
+                        reasoning_tokens=_tok_think, call_label=f"ImplAgent.{task_file.task_id}")
+                except Exception:
+                    pass
+
             # Extract diff from response
             diff = self._extract_diff(response_text, task_file)
             

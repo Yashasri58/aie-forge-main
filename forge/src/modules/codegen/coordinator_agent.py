@@ -790,12 +790,18 @@ Be thorough. Use the tools to verify everything. Don't assume - check.
             logger.info("   └─ Calling LLM for validation...")
             
             event_count = 0
+            _tok_in = _tok_out = _tok_think = 0
             async for event in self._runner.run_async(
                 user_id="developer",
                 session_id=self._session.id,
                 new_message=content
             ):
                 event_count += 1
+                _m = getattr(event, "usage_metadata", None)
+                if _m:
+                    _tok_in    = max(_tok_in,    getattr(_m, "prompt_token_count",     0) or 0)
+                    _tok_out   = max(_tok_out,   getattr(_m, "candidates_token_count", 0) or 0)
+                    _tok_think = max(_tok_think, getattr(_m, "thoughts_token_count",   0) or 0)
                 if hasattr(event, 'tool_calls') and event.tool_calls:
                     for tc in event.tool_calls:
                         tool_call_count += 1
@@ -805,16 +811,25 @@ Be thorough. Use the tools to verify everything. Don't assume - check.
                         name = tr.name if hasattr(tr, 'name') else 'unknown'
                         result_preview = str(tr.result)[:120] if hasattr(tr, 'result') else str(tr)[:120]
                         logger.debug(f"   └─ TOOL RESULT: {name} → {result_preview}")
-                # Log all events for debugging
                 if hasattr(event, 'content') and event.content:
                     logger.debug(f"   └─ Event {event_count}: has content, is_final={event.is_final_response()}")
                 else:
                     logger.debug(f"   └─ Event {event_count}: no content, is_final={event.is_final_response()}")
-                
+
                 if event.is_final_response() and event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
                             response_text += part.text
+
+            _pid = getattr(self, '_pipeline_id', '')
+            if _pid and (_tok_in or _tok_out):
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    get_tracker().record(pipeline_id=_pid, model=self._model,
+                        input_tokens=_tok_in, output_tokens=_tok_out,
+                        reasoning_tokens=_tok_think, call_label="CoordinatorAgent.validate")
+                except Exception:
+                    pass
             
             logger.info(f"   └─ Total events: {event_count}, tool calls: {tool_call_count}, response chars: {len(response_text)}")
             

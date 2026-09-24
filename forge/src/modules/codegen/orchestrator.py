@@ -160,6 +160,7 @@ class CodeGenOrchestrator:
         logger.info("📋 Validating plan...")
         
         # Use Coordinator Agent for intelligent validation
+        self._coordinator._pipeline_id = state.id  # for token tracking
         validation_result = await self._coordinator.validate(plan)
         
         if not validation_result.get("valid", False):

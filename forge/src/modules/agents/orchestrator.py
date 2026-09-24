@@ -526,7 +526,7 @@ class PipelineOrchestrator:
                 
                 # Verify completeness
                 state.log_activity("Querying call graph for callers...", "info")
-                verification = await self.verification_agent.verify(report, symbols)
+                verification = await self.verification_agent.verify(report, symbols, pipeline_id=state.id)
                 state.verification = verification
                 
                 gaps_count = len(verification.get("gaps", []))

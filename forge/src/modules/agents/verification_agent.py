@@ -245,7 +245,7 @@ class VerificationAgent(BaseADKAgent):
         symbols = input_data.get("symbols", [])
         return await self.verify(report, symbols)
     
-    async def verify(self, report: str, symbols: list[dict]) -> dict:
+    async def verify(self, report: str, symbols: list[dict], pipeline_id: str = "") -> dict:
         """
         Verify the impact report is complete.
         """
@@ -273,7 +273,7 @@ Report any gaps as JSON."""
         # HARNESS ITEM 5: Verify that the agent actually called trace_callers/trace_callees
         # Reset receipts before this run, check after
         _reset_verification_receipts()
-        response = await self.run(prompt)
+        response = await self.run(prompt, pipeline_id=pipeline_id)
         result = self.parse_json(response)
 
         trace_receipts = [r for r in _verification_receipts

@@ -149,15 +149,24 @@ class SpecWriterAgent:
         self._budget.record_llm_call()
         self._receipts.log("spec_writer_llm", {"section": section_id}, 1)
 
+        from modules.llm_registry import _get_provider, _resolve_model, _litellm_call_with_usage
+        if _get_provider() == "litellm":
+            model = _resolve_model(self.MODEL_NAME)
+            text, in_tok, out_tok = _litellm_call_with_usage(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4)
+            if pipeline_id and in_tok > 0:
+                try:
+                    from modules.cache.token_tracker import get_tracker
+                    get_tracker().record(
+                        pipeline_id=pipeline_id, model=self.MODEL_NAME,
+                        input_tokens=in_tok, output_tokens=out_tok,
+                        reasoning_tokens=0, call_label=f"SpecWriter.{section_id}",
+                    )
+                except Exception:
+                    pass
+            return text
+
         if not self._model:
             return self._mock_section(section_id)
-
-        from modules.llm_registry import _get_provider, _resolve_model, _litellm_call
-        model = _resolve_model(self.MODEL_NAME)
-        if _get_provider() == "litellm":
-            return _litellm_call(model, prompt, SPEC_WRITER_SYSTEM, temperature=0.4)
-
-        response = self._model.generate_content(prompt)
 
         # ── Token tracking ──────────────────────────────────────────────────
         if pipeline_id:
