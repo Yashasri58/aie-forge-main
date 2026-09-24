@@ -312,6 +312,21 @@ export async function getCodeGenResult(codegenId: string): Promise<CodeGenResult
   return parseJson<CodeGenResult>(res);
 }
 
+// ─── SERVICE ENRICHMENT (per-service expand) ─────────────────────────────────
+
+export interface ServiceEnrichment {
+  service: string;
+  packages: { name: string; version: string; dep_type: string }[];
+  db_tables: string[];
+  api_endpoints: { method: string; path: string; operation_id: string }[];
+  env_vars: string[];
+}
+
+export async function getServiceEnrichment(serviceName: string): Promise<ServiceEnrichment> {
+  const res = await fetch(`/graph/service/${encodeURIComponent(serviceName)}/enrichment`);
+  return parseJson<ServiceEnrichment>(res);
+}
+
 // ─── ENRICHMENT API ──────────────────────────────────────────────────────────
 
 export interface PackageRow { package: string; version: string }

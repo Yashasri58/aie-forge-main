@@ -13,11 +13,19 @@ import {
   Database,
   Trash2,
   Clock,
+  Package,
+  Globe,
+  Settings2,
+  ChevronDown,
+  ChevronRight,
   Download,
 } from "lucide-react";
 import { Page, Card, StatCard, Button, Badge, StatusDot, Logo } from "../components/ui";
 import HowForgeWorks from "../components/HowForgeWorks";
-import { getGraphStats, listCache, deleteCacheEntry, type CacheEntry } from "../api";
+import {
+  getGraphStats, listCache, deleteCacheEntry,
+  getServiceEnrichment, type CacheEntry, type ServiceEnrichment,
+} from "../api";
 import { entryToMarkdown, triggerDownload, safeFilename } from "../utils/downloadUtils";
 import JSZip from "jszip";
 
@@ -27,15 +35,25 @@ interface ServiceOverview {
   functions: number;
   inbound: number;
   outbound: number;
+  packages: number;
+  db_tables: number;
+  api_endpoints: number;
+  env_vars: number;
 }
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ services: 0, symbols: 0, edges: 0 });
+  const [stats, setStats] = useState({
+    services: 0, symbols: 0, edges: 0,
+    packages: 0, db_tables: 0, api_endpoints: 0, env_vars: 0,
+  });
   const [services, setServices] = useState<ServiceOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [enrichmentCache, setEnrichmentCache] = useState<Record<string, ServiceEnrichment>>({});
+  const [enrichmentLoading, setEnrichmentLoading] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -72,14 +90,12 @@ export default function Dashboard() {
       const zip = new JSZip();
       const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
 
-      // One .md file per entry
       results.forEach((entry) => {
         const md = entryToMarkdown(entry);
         const filename = safeFilename(entry.label || entry.id, entry.id.slice(0, 8));
         zip.file(filename, md);
       });
 
-      // Also include a summary index
       const index = results.map((e, i) =>
         `${i + 1}. [${e.pipeline_type?.toUpperCase()}] ${e.label || e.id}`
       ).join("\n");
@@ -107,28 +123,31 @@ export default function Dashboard() {
   async function loadData() {
     try {
       const graphStats = await getGraphStats();
-      setStats(graphStats);
-      
-      // Fetch service list from graph overview
+      setStats(prev => ({ ...prev, ...graphStats }));
+
       const res = await fetch("/graph/overview");
       const data = await res.json();
-      
-      // Extract services from nodes
+
       const serviceNodes = data.nodes?.filter((n: { type: string }) => n.type === "service") || [];
       const edges = data.edges || [];
-      
-      const serviceList: ServiceOverview[] = serviceNodes.map((node: { id: string; label: string; child_count?: number }) => {
+
+      const serviceList: ServiceOverview[] = serviceNodes.map((node: { id: string; label: string; child_count?: number; properties?: Record<string, number> }) => {
         const inbound = edges.filter((e: { target: string }) => e.target === node.id).length;
         const outbound = edges.filter((e: { source: string }) => e.source === node.id).length;
+        const props = node.properties || {};
         return {
           id: node.id,
           name: node.label,
           functions: node.child_count || 0,
           inbound,
           outbound,
+          packages: props.packages ?? 0,
+          db_tables: props.db_tables ?? 0,
+          api_endpoints: props.api_endpoints ?? 0,
+          env_vars: props.env_vars ?? 0,
         };
       });
-      
+
       setServices(serviceList);
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -137,14 +156,31 @@ export default function Dashboard() {
     }
   }
 
+  async function handleToggleExpand(serviceName: string) {
+    if (expandedService === serviceName) {
+      setExpandedService(null);
+      return;
+    }
+    setExpandedService(serviceName);
+    if (!enrichmentCache[serviceName]) {
+      setEnrichmentLoading(serviceName);
+      try {
+        const data = await getServiceEnrichment(serviceName);
+        setEnrichmentCache(prev => ({ ...prev, [serviceName]: data }));
+      } catch {
+        // ignore — show empty state
+      } finally {
+        setEnrichmentLoading(null);
+      }
+    }
+  }
+
   async function handleStartAnalysis() {
-    // Just navigate to chat page - don't start pipeline yet
-    // Pipeline will start when user sends their first message
     navigate(`/chat/new`);
   }
 
   return (
-    <Page>
+    <Page scrollable>
       {/* Header */}
       <header className="flex items-center justify-between pb-6 border-b border-[var(--color-glass-border)] mb-6">
         <div className="flex items-center gap-6">
@@ -181,60 +217,39 @@ export default function Dashboard() {
         onClose={() => setShowHowItWorks(false)}
       />
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <StatCard
-            value={stats.services}
-            label="Services"
-            icon={<Box size={20} />}
-          />
+      {/* Stats Row — 4 main stats */}
+      <div className="grid grid-cols-4 gap-4 mb-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <StatCard value={stats.services} label="Services" icon={<Box size={20} />} />
         </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-        >
-          <StatCard
-            value={stats.symbols}
-            label="Functions"
-            icon={<GitBranch size={20} />}
-          />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <StatCard value={stats.symbols} label="Functions" icon={<GitBranch size={20} />} />
         </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <StatCard
-            value={stats.edges}
-            label="Connections"
-            icon={<Zap size={20} />}
-          />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <StatCard value={stats.edges} label="Connections" icon={<Zap size={20} />} />
         </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-        >
-          <Card className="flex flex-col items-center justify-center gap-2 text-center">
-            <Sparkles size={24} className="text-[var(--color-accent)]" />
-            <span className="text-sm text-[var(--color-text-muted)]">
-              AI-Powered Analysis
-            </span>
-          </Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <StatCard value={stats.packages} label="Packages" icon={<Package size={20} />} />
         </motion.div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Services Table */}
+      {/* Enrichment stats sub-row */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
+          <StatCard value={stats.db_tables} label="DB Tables" icon={<Database size={20} />} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <StatCard value={stats.api_endpoints} label="API Endpoints" icon={<Globe size={20} />} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
+          <StatCard value={stats.env_vars} label="Env Vars" icon={<Settings2 size={20} />} />
+        </motion.div>
+      </div>
+
+      {/* Main Content — two-column grid */}
+      <div className="grid grid-cols-[1fr_360px] gap-6">
+        {/* LEFT: Services Table */}
         <motion.div
-          className="flex-shrink-0"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
@@ -259,59 +274,191 @@ export default function Dashboard() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-auto" style={{ maxHeight: "260px" }}>
-                <table className="table">
+              <div className="overflow-auto" style={{ maxHeight: "420px" }}>
+                <table className="table w-full text-sm">
                   <thead>
                     <tr>
                       <th className="w-8"></th>
-                      <th>Service</th>
-                      <th className="text-right">Functions</th>
-                      <th className="text-right">Inbound</th>
-                      <th className="text-right">Outbound</th>
-                      <th className="w-12"></th>
+                      <th className="w-2"></th>
+                      <th className="text-left">Service</th>
+                      <th className="w-16 text-right">Fns</th>
+                      <th className="w-16 text-right">In</th>
+                      <th className="w-16 text-right">Out</th>
+                      <th className="w-16 text-right">
+                        <span title="npm packages" className="flex items-center justify-end gap-1">
+                          <Package size={11} className="opacity-60" /> Pkgs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="DB tables" className="flex items-center justify-end gap-1">
+                          <Database size={11} className="opacity-60" /> DBs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="API endpoints" className="flex items-center justify-end gap-1">
+                          <Globe size={11} className="opacity-60" /> APIs
+                        </span>
+                      </th>
+                      <th className="w-16 text-right">
+                        <span title="Env vars" className="flex items-center justify-end gap-1">
+                          <Settings2 size={11} className="opacity-60" /> Env
+                        </span>
+                      </th>
+                      <th className="w-8"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {services.map((service, i) => (
-                      <motion.tr
-                        key={service.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.05 * i }}
-                        className="group"
-                      >
-                        <td>
-                          <div
-                            className="w-1 h-8 rounded-full"
-                            style={{
-                              background: `hsl(${(i * 45) % 360}, 70%, 60%)`,
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <span className="font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors">
-                            {service.name}
-                          </span>
-                        </td>
-                        <td className="text-right font-mono">
-                          {service.functions}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-success)]">
-                          ↓ {service.inbound}
-                        </td>
-                        <td className="text-right font-mono text-[var(--color-accent)]">
-                          ↑ {service.outbound}
-                        </td>
-                        <td>
-                          <button
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
-                            onClick={() => navigate(`/explore?focus=${service.id}`)}
+                    {services.map((service, i) => {
+                      const isExpanded = expandedService === service.name;
+                      const enrichment = enrichmentCache[service.name];
+                      const isLoading = enrichmentLoading === service.name;
+                      return (
+                        <>
+                          <motion.tr
+                            key={service.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.04 * i }}
+                            className={`group cursor-pointer select-none ${isExpanded ? "bg-[var(--color-glass-bg)]" : ""}`}
+                            onClick={() => handleToggleExpand(service.name)}
                           >
-                            <ExternalLink size={14} />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
+                            {/* chevron */}
+                            <td className="w-8 text-center">
+                              <span className="text-[var(--color-text-muted)] inline-flex items-center">
+                                {isExpanded
+                                  ? <ChevronDown size={14} />
+                                  : <ChevronRight size={14} />}
+                              </span>
+                            </td>
+                            {/* colour bar */}
+                            <td className="w-2 p-0">
+                              <div
+                                className="w-1 h-8 rounded-full"
+                                style={{ background: `hsl(${(i * 45) % 360}, 70%, 60%)` }}
+                              />
+                            </td>
+                            <td>
+                              <span className={`font-medium transition-colors ${isExpanded ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)]"}`}>
+                                {service.name}
+                              </span>
+                            </td>
+                            <td className="w-16 text-right font-mono">{service.functions}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-success)]">↓ {service.inbound}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-accent)]">↑ {service.outbound}</td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.packages > 0 ? service.packages : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.db_tables > 0 ? service.db_tables : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.api_endpoints > 0 ? service.api_endpoints : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-16 text-right font-mono text-[var(--color-text-muted)]">
+                              {service.env_vars > 0 ? service.env_vars : <span className="opacity-30">—</span>}
+                            </td>
+                            <td className="w-8">
+                              <button
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+                                onClick={(e) => { e.stopPropagation(); navigate(`/explore?focus=${service.id}`); }}
+                                title="View in graph"
+                              >
+                                <ExternalLink size={13} />
+                              </button>
+                            </td>
+                          </motion.tr>
+
+                          {/* Expand detail row */}
+                          {isExpanded && (
+                            <tr key={`${service.id}-detail`} className="bg-[var(--color-glass-bg)]">
+                              <td colSpan={11} className="px-10 pb-4 pt-2">
+                                {isLoading ? (
+                                  <div className="text-xs text-[var(--color-text-muted)] py-2 animate-pulse">Loading enrichment…</div>
+                                ) : enrichment ? (
+                                  <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                                    {/* Packages */}
+                                    {enrichment.packages.length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{ fontSize: "10px" }}>
+                                          <Package size={10} /> npm packages ({enrichment.packages.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.packages.map(p => (
+                                            <span key={p.name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)]">
+                                              {p.name}
+                                              {p.version && <span className="text-[var(--color-text-muted)]">@{p.version}</span>}
+                                              {p.dep_type === "dev" && <span className="text-yellow-500 opacity-70">dev</span>}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* DB Tables */}
+                                    {enrichment.db_tables.length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{ fontSize: "10px" }}>
+                                          <Database size={10} /> DB tables ({enrichment.db_tables.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.db_tables.map(t => (
+                                            <span key={t} className="px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)]">{t}</span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* API Endpoints */}
+                                    {enrichment.api_endpoints.length > 0 && (
+                                      <div className="col-span-2">
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{ fontSize: "10px" }}>
+                                          <Globe size={10} /> API endpoints ({enrichment.api_endpoints.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.api_endpoints.map(ep => (
+                                            <span key={`${ep.method}:${ep.path}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)] font-mono">
+                                              <span className={`font-bold text-[10px] ${
+                                                ep.method === "GET" ? "text-green-400" :
+                                                ep.method === "POST" ? "text-blue-400" :
+                                                ep.method === "PUT" ? "text-yellow-400" :
+                                                ep.method === "DELETE" ? "text-red-400" :
+                                                "text-[var(--color-text-muted)]"
+                                              }`}>{ep.method}</span>
+                                              {ep.path}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Env vars */}
+                                    {enrichment.env_vars.length > 0 && (
+                                      <div className="col-span-2">
+                                        <div className="flex items-center gap-1 text-[var(--color-text-muted)] mb-1 font-semibold uppercase tracking-wide" style={{ fontSize: "10px" }}>
+                                          <Settings2 size={10} /> env vars ({enrichment.env_vars.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {enrichment.env_vars.map(v => (
+                                            <span key={v} className="px-2 py-0.5 rounded bg-[var(--color-glass-border)] text-[var(--color-text-primary)] font-mono">{v}</span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {enrichment.packages.length === 0 && enrichment.db_tables.length === 0 &&
+                                     enrichment.api_endpoints.length === 0 && enrichment.env_vars.length === 0 && (
+                                      <div className="col-span-2 text-[var(--color-text-muted)] py-1">No enrichment data for this service.</div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-[var(--color-text-muted)] py-1">No enrichment data available.</div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -319,146 +466,140 @@ export default function Dashboard() {
           </Card>
         </motion.div>
 
-        {/* Past Requests & Results panel */}
-        {cacheEntries.length > 0 && (
+        {/* RIGHT column: History + CTAs */}
+        <div className="flex flex-col gap-4">
+
+          {/* Past Requests & Results */}
+          {cacheEntries.length > 0 && (
+            <motion.div
+              className="flex flex-col"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Database size={16} className="text-[var(--color-accent)]" />
+                  <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    Past Requests & Results
+                  </h2>
+                  <Badge variant="accent">{cacheEntries.length}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDownloadAll}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-glass-bg)] transition-all"
+                    title="Download all as ZIP"
+                  >
+                    <Download size={12} />
+                    All
+                  </button>
+                  <span className="text-xs text-[var(--color-text-muted)]">Click to view</span>
+                </div>
+              </div>
+
+              <Card className="overflow-hidden">
+                {/* Scrollable list */}
+                <div className="overflow-y-auto divide-y divide-[var(--color-glass-border)]" style={{ maxHeight: "380px" }}>
+                  {cacheEntries.map((entry) => {
+                    const typeColors: Record<string, string> = {
+                      impact: "text-blue-400",
+                      codegen: "text-green-400",
+                      reverse_engineer: "text-purple-400",
+                    };
+                    const typeLabels: Record<string, string> = {
+                      impact: "Impact",
+                      codegen: "CodeGen",
+                      reverse_engineer: "RE",
+                    };
+                    const ago = Math.round((Date.now() / 1000 - entry.last_used_at) / 60);
+                    const agoStr = ago < 60 ? `${ago}m ago` : `${Math.round(ago / 60)}h ago`;
+
+                    return (
+                      <div
+                        key={entry.id}
+                        onClick={() => navigate(`/history/${entry.id}`)}
+                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-glass-bg)] transition-colors group cursor-pointer"
+                      >
+                        {/* Type badge */}
+                        <span className={`text-xs font-mono font-bold w-14 shrink-0 ${typeColors[entry.pipeline_type] || "text-[var(--color-text-muted)]"}`}>
+                          {typeLabels[entry.pipeline_type] || entry.pipeline_type}
+                        </span>
+
+                        {/* Label */}
+                        <span className="flex-1 text-xs text-[var(--color-text-primary)] truncate group-hover:text-[var(--color-accent)] transition-colors">
+                          {entry.label?.replace(/^\[REJECTED\]\s*/, "") ?? ""}
+                        </span>
+                        {entry.label?.startsWith("[REJECTED]") && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[var(--color-error-subtle)] text-[var(--color-error)]">
+                            REJECTED
+                          </span>
+                        )}
+
+                        {/* Last used */}
+                        <span className="text-xs text-[var(--color-text-muted)] shrink-0 flex items-center gap-1">
+                          <Clock size={10} />
+                          {agoStr}
+                        </span>
+
+                        {/* Arrow */}
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-accent)] shrink-0 text-xs">→</span>
+
+                        {/* Download */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDownloadCache(entry.id, entry.label); }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)] shrink-0"
+                          title="Download"
+                        >
+                          <Download size={12} />
+                        </button>
+
+                        {/* Delete */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteCache(entry.id); }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-red-400 shrink-0"
+                          title="Delete"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* CTA Buttons */}
           <motion.div
-            className="mt-6"
+            className="flex flex-col gap-3 mt-auto"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.35 }}
+            transition={{ delay: 0.4 }}
           >
-            {/* Panel header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Database size={16} className="text-[var(--color-accent)]" />
-                <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-                  Past Requests & Results
-                </h2>
-                <Badge variant="accent">{cacheEntries.length}</Badge>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleDownloadAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-glass-bg)] border border-[var(--color-glass-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all"
-                  title="Download all entries as a single JSON file"
-                >
-                  <Download size={13} />
-                  Download All
-                </button>
-                <span className="text-xs text-[var(--color-text-muted)]">
-                  Click row to view details
-                </span>
-              </div>
-            </div>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={handleStartAnalysis}
+              icon={<Sparkles size={18} />}
+              className="gradient-border w-full"
+            >
+              Make Changes to Codebase
+              <ArrowRight size={16} />
+            </Button>
 
-            <Card className="overflow-hidden">
-              <div className="divide-y divide-[var(--color-glass-border)]">
-                {cacheEntries.map((entry) => {
-                  const typeColors: Record<string, string> = {
-                    impact: "text-blue-400",
-                    codegen: "text-green-400",
-                    reverse_engineer: "text-purple-400",
-                  };
-                  const typeLabels: Record<string, string> = {
-                    impact: "Impact",
-                    codegen: "CodeGen",
-                    reverse_engineer: "RE",
-                  };
-                  const ago = Math.round((Date.now() / 1000 - entry.last_used_at) / 60);
-                  const agoStr = ago < 60 ? `${ago}m ago` : `${Math.round(ago/60)}h ago`;
-
-                  return (
-                    <div
-                      key={entry.id}
-                      onClick={() => navigate(`/history/${entry.id}`)}
-                      className="flex items-center gap-4 px-4 py-3 hover:bg-[var(--color-glass-bg)] transition-colors group cursor-pointer"
-                    >
-                      {/* Type badge */}
-                      <span className={`text-xs font-mono font-bold w-16 shrink-0 ${typeColors[entry.pipeline_type] || "text-[var(--color-text-muted)]"}`}>
-                        {typeLabels[entry.pipeline_type] || entry.pipeline_type}
-                      </span>
-
-                      {/* Label */}
-                      <span className="flex-1 text-sm text-[var(--color-text-primary)] truncate group-hover:text-[var(--color-accent)] transition-colors">
-                        {entry.label?.replace(/^\[REJECTED\]\s*/, "") ?? ""}
-                      </span>
-                      {entry.label?.startsWith("[REJECTED]") && (
-                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[var(--color-error-subtle)] text-[var(--color-error)]">
-                          REJECTED
-                        </span>
-                      )}
-
-                      {/* Use count */}
-                      {entry.use_count > 0 && (
-                        <span className="text-xs text-[var(--color-text-muted)] shrink-0">
-                          viewed {entry.use_count}×
-                        </span>
-                      )}
-
-                      {/* Last used */}
-                      <span className="text-xs text-[var(--color-text-muted)] shrink-0 flex items-center gap-1">
-                        <Clock size={11} />
-                        {agoStr}
-                      </span>
-
-                      {/* Arrow hint */}
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-accent)] shrink-0 text-xs">
-                        →
-                      </span>
-
-                      {/* Download */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDownloadCache(entry.id, entry.label); }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)] shrink-0"
-                        title="Download as JSON"
-                      >
-                        <Download size={14} />
-                      </button>
-
-                      {/* Delete */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteCache(entry.id); }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-red-400 shrink-0"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => navigate("/reverse-engineer")}
+              icon={<span className="text-base">🔍</span>}
+              className="w-full"
+            >
+              Reverse Engineer from Logs
+              <ArrowRight size={16} />
+            </Button>
           </motion.div>
-        )}
-
-        {/* CTA Buttons */}
-        <motion.div
-          className="flex flex-col sm:flex-row justify-center gap-4 pt-8"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={handleStartAnalysis}
-            icon={<Sparkles size={20} />}
-            className="gradient-border"
-          >
-            Make Changes to Codebase
-            <ArrowRight size={18} />
-          </Button>
-
-          <Button
-            variant="secondary"
-            size="lg"
-            onClick={() => navigate("/reverse-engineer")}
-            icon={<span className="text-base">🔍</span>}
-          >
-            Reverse Engineer from Logs
-            <ArrowRight size={18} />
-          </Button>
-        </motion.div>
+        </div>
       </div>
     </Page>
   );
