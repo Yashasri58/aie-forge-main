@@ -50,15 +50,24 @@ from typing import Dict, List, Optional
 
 PRICING: Dict[str, Dict[str, float]] = {
     # model_name → {input: $/1M, output: $/1M}
-    "gemini-2.5-pro":                    {"input": 1.25,  "output": 10.00},
-    "gemini-3.1-pro-preview":            {"input": 1.25,  "output": 10.00},
-    "gemini-3.1-pro-preview-customtools":{"input": 1.25,  "output": 10.00},
-    "gemini-2.5-flash":                  {"input": 0.15,  "output": 0.60},
-    "gemini-2.5-flash-lite":             {"input": 0.075, "output": 0.30},
-    "gemini-3.5-flash":                  {"input": 0.15,  "output": 0.60},
-    "gemini-3.8-flash":                  {"input": 0.15,  "output": 0.60},
-    # Fallback for unknown models
-    "_default":                          {"input": 0.15,  "output": 0.60},
+    # Source: https://ai.google.dev/gemini-api/docs/pricing (Sep 2026, paid tier, standard)
+    # NOTE: More specific names must come BEFORE their substrings (e.g. flash-lite before flash)
+    # Gemini 2.x — specific first
+    "gemini-2.5-flash-lite":             {"input": 0.10,  "output": 0.40},
+    "gemini-2.5-flash":                  {"input": 0.30,  "output": 2.50},
+    "gemini-2.5-pro":                    {"input": 1.25,  "output": 10.00},  # ≤200k tokens
+    # Gemini 3.x Flash — specific first
+    "gemini-3.1-flash-lite":             {"input": 0.25,  "output": 1.50},
+    "gemini-3.5-flash-lite":             {"input": 0.30,  "output": 2.50},
+    "gemini-3.5-flash":                  {"input": 1.50,  "output": 9.00},
+    "gemini-3.6-flash":                  {"input": 0.75,  "output": 3.75},
+    "gemini-3.7-flash":                  {"input": 0.75,  "output": 3.75},
+    "gemini-3.8-flash":                  {"input": 0.75,  "output": 3.75},
+    # Gemini 3.x Pro (≤200k tokens)
+    "gemini-3.1-pro-preview-customtools":{"input": 2.00,  "output": 12.00},
+    "gemini-3.1-pro-preview":            {"input": 2.00,  "output": 12.00},
+    # Fallback for unknown models — use 2.5-flash pricing
+    "_default":                          {"input": 0.30,  "output": 2.50},
 }
 
 
