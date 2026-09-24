@@ -325,6 +325,14 @@ class PipelineOrchestrator:
         if not state:
             raise ValueError(f"Pipeline {pipeline_id} not found")
         
+        # Allow user to continue the conversation even if requirements were
+        # already marked ready (i.e. they clicked "Edit Requirements" on the
+        # approval page and are now sending a new message).
+        if state.stage == PipelineStage.REQUIREMENTS_READY:
+            state.stage = PipelineStage.GATHERING
+            state.current_question = None
+            _log.info("[ORCHESTRATOR]   ✏️  User is editing requirements — resetting to GATHERING")
+        
         if state.stage != PipelineStage.GATHERING:
             raise ValueError(f"Pipeline not in gathering stage")
         

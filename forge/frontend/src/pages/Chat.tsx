@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Sparkles, Bot, User } from "lucide-react";
+import { Send, Sparkles, Bot, User, ArrowLeft, PenLine } from "lucide-react";
 import { Page, Header, Button, Spinner } from "../components/ui";
 import { startPipeline, respondToPipeline, getPipelineStatus } from "../api";
 import type { PipelineState, ChatMessage } from "../types";
@@ -15,6 +15,8 @@ export default function Chat() {
   const [sending, setSending] = useState(false);
   const [initializing, setInitializing] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  // True when user came back from the approval page to edit requirements
+  const [isEditingMode, setIsEditingMode] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -31,17 +33,21 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [pipeline?.conversation_history, pendingMessage]);
 
-  // Check if we should navigate to approval
+  // Check if we should navigate to approval — but NOT when editing
   useEffect(() => {
-    if (pipeline?.stage === "requirements_ready") {
+    if (pipeline?.stage === "requirements_ready" && !isEditingMode) {
       navigate(`/approval/${pipeline.id}`);
     }
-  }, [pipeline?.stage, pipeline?.id, navigate]);
+  }, [pipeline?.stage, pipeline?.id, navigate, isEditingMode]);
 
   async function loadPipeline(id: string) {
     try {
       const state = await getPipelineStatus(id);
       setPipeline(state);
+      // If we land on chat with requirements_ready, we came from "Edit Requirements"
+      if (state.stage === "requirements_ready") {
+        setIsEditingMode(true);
+      }
     } catch (err) {
       console.error("Failed to load pipeline:", err);
       navigate("/");
@@ -54,26 +60,25 @@ export default function Chat() {
 
     setInput("");
     setSending(true);
-    setPendingMessage(text); // Show user message immediately
+    setPendingMessage(text);
+    // Once user sends a message in edit mode, they're actively editing
+    // The auto-redirect suppression stays until requirements are ready again
+    if (isEditingMode) setIsEditingMode(false);
 
     try {
       let state: PipelineState;
       
       if (!pipeline) {
-        // Start new pipeline with first message
         setInitializing(true);
         state = await startPipeline(text);
         setInitializing(false);
-        
-        // Update URL to include pipeline ID
         window.history.replaceState(null, "", `/chat/${state.id}`);
       } else {
-        // Respond to existing pipeline
         state = await respondToPipeline(pipeline.id, text);
       }
       
       setPipeline(state);
-      setPendingMessage(null); // Clear pending once response arrives
+      setPendingMessage(null);
     } catch (err) {
       console.error("Failed to send message:", err);
       setPendingMessage(null);
@@ -81,7 +86,7 @@ export default function Chat() {
       setSending(false);
       inputRef.current?.focus();
     }
-  }, [input, sending, pipeline]);
+  }, [input, sending, pipeline, isEditingMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -103,6 +108,31 @@ export default function Chat() {
 
       {/* Chat Container */}
       <div className="flex-1 flex flex-col min-h-0 max-w-4xl mx-auto w-full">
+
+        {/* Edit mode banner — shown when returning from approval page */}
+        {isEditingMode && pipeline && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 px-4 py-3 rounded-xl border border-[var(--color-accent)] bg-[var(--color-accent-subtle)] flex items-start gap-3"
+          >
+            <PenLine size={18} className="text-[var(--color-accent)] mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-[var(--color-accent)]">Editing requirements</p>
+              <p className="text-sm text-[var(--color-text-secondary)] mt-0.5">
+                Tell me what you'd like to change. The agent will continue and update the requirements.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate(`/approval/${pipeline.id}`)}
+              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] flex items-center gap-1 shrink-0 mt-0.5"
+            >
+              <ArrowLeft size={12} />
+              Back to review
+            </button>
+          </motion.div>
+        )}
+
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto py-6 space-y-4">
           {/* Welcome message when empty */}
