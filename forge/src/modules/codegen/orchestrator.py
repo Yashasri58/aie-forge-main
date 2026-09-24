@@ -212,10 +212,10 @@ class CodeGenOrchestrator:
             # Run tasks
             if phase.parallel and len(phase_task_files) > 1:
                 logger.info(f"   └─ Running {len(phase_task_files)} tasks in parallel")
-                diffs = await self._run_parallel(phase_task_files)
+                diffs = await self._run_parallel(phase_task_files, pipeline_id=state.id)
             else:
                 logger.info(f"   └─ Running {len(phase_task_files)} tasks sequentially")
-                diffs = await self._run_sequential(phase_task_files)
+                diffs = await self._run_sequential(phase_task_files, pipeline_id=state.id)
             
             all_diffs.extend(diffs)
             
@@ -308,25 +308,25 @@ class CodeGenOrchestrator:
         
         return state
     
-    async def _run_parallel(self, task_files: list[TaskFile]) -> list[AgentOutput]:
+    async def _run_parallel(self, task_files: list[TaskFile], pipeline_id: str = "") -> list[AgentOutput]:
         """Run implementation agents in parallel with concurrency limit."""
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
         
         async def run_with_limit(task_file: TaskFile) -> AgentOutput:
             async with semaphore:
                 agent = ImplementationAgent(self._services_path)
-                return await agent.implement(task_file)
+                return await agent.implement(task_file, pipeline_id=pipeline_id)
         
         return await asyncio.gather(*[
             run_with_limit(tf) for tf in task_files
         ])
     
-    async def _run_sequential(self, task_files: list[TaskFile]) -> list[AgentOutput]:
+    async def _run_sequential(self, task_files: list[TaskFile], pipeline_id: str = "") -> list[AgentOutput]:
         """Run implementation agents sequentially."""
         results = []
         for task_file in task_files:
             agent = ImplementationAgent(self._services_path)
-            result = await agent.implement(task_file)
+            result = await agent.implement(task_file, pipeline_id=pipeline_id)
             results.append(result)
         return results
     
@@ -392,7 +392,7 @@ class CodeGenOrchestrator:
                 else:
                     # Re-run from scratch
                     agent = ImplementationAgent(self._services_path)
-                    new_diffs.append(await agent.implement(task_file))
+                    new_diffs.append(await agent.implement(task_file, pipeline_id=state.id))
             else:
                 # Keep original
                 original = next(

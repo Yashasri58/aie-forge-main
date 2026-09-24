@@ -162,7 +162,7 @@ class ImplementationAgent:
         
         return self._sessions[cache_key]
     
-    async def implement(self, task_file: TaskFile) -> AgentOutput:
+    async def implement(self, task_file: TaskFile, pipeline_id: str = "") -> AgentOutput:
         """
         Implement a task and return a diff.
         
