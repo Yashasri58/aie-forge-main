@@ -77,11 +77,22 @@ def _resolve_model(model_name: str) -> str:
 def _resolve_adk_model(model_name: str) -> str:
     """
     Resolve the model name for ADK Agent(model=...) calls.
-    Returns the raw model name (no gemini/ prefix) — ADK wraps it with openai/.
+
+    For litellm provider: adds 'gemini/' prefix so that when get_adk_model()
+    wraps with 'openai/' the proxy receives 'gemini/<model>' which is in its
+    allowed-models list (e.g. gemini/gemini-3.1-pro-preview-customtools).
+
+    For gemini provider: returns the raw model name — ADK handles it natively.
     """
     override = os.environ.get("LITELLM_MODEL", "").strip()
     if override:
         return override
+
+    if _get_provider() == "litellm":
+        # Proxy requires gemini/ prefix; get_adk_model adds openai/ on top
+        if not model_name.startswith("gemini/"):
+            return f"gemini/{model_name}"
+
     return model_name
 
 
