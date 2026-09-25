@@ -95,10 +95,16 @@ def apply_diff_to_content(content: str, diff_text: str) -> str:
     Returns:
         Modified content
     """
+    import logging
+    _log = logging.getLogger("forge.codegen.harness")
+
     # Normalize line endings — CRLF files cause hunk mismatches because
     # splitlines() strips \r but '\n'.join() doesn't add it back, leaving
     # stray \r on context lines that produce tree-sitter parse errors.
     content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+    original_lines = content.splitlines()
+    _log.debug(f"[APPLY_DIFF] Input: {len(original_lines)} lines, diff={len(diff_text)} chars")
 
     diff = parse_unified_diff(diff_text)
     
@@ -144,7 +150,14 @@ def apply_diff_to_content(content: str, diff_text: str) -> str:
         result_lines.append(original_lines[current_line])
         current_line += 1
     
-    return '\n'.join(result_lines)
+    result = '\n'.join(result_lines)
+
+    # Sanity check: warn if result has stray \r (means CRLF normalisation missed something)
+    if '\r' in result:
+        _log.warning(f"[APPLY_DIFF] ⚠️ Result still has {result.count(chr(13))} stray \\r chars after normalisation")
+    _log.debug(f"[APPLY_DIFF] Output: {len(result_lines)} lines, {len(result)} chars")
+
+    return result
 
 
 # =============================================================================

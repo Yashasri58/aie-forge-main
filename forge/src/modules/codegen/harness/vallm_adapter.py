@@ -16,6 +16,7 @@ We keep our own checks for:
 - Contract checking (vallm doesn't do this)
 """
 
+import logging
 from typing import List, Optional
 from dataclasses import dataclass
 
@@ -26,6 +27,8 @@ from .models import (
     FileDiff,
     CheckResult,
 )
+
+logger = logging.getLogger("forge.codegen.harness")
 
 # Try to import vallm - graceful fallback if not installed
 try:
@@ -95,10 +98,23 @@ class VallmAdapter:
         for diff in diffs:
             language = self._detect_language(diff.file_path)
             if not language:
+                logger.debug(f"[VALLM:SYNTAX] Skipping {diff.file_path} — unsupported language")
                 continue
             
+            content = diff.modified_content or ""
+            logger.info(f"[VALLM:SYNTAX] Checking {diff.file_path} ({len(content)} chars, lang={language})")
+
+            # Log a snippet to help diagnose bad content
+            if content:
+                first_lines = content.splitlines()[:5]
+                logger.debug(f"[VALLM:SYNTAX]   First 5 lines: {first_lines}")
+                # Warn if stray \r detected (CRLF not fully normalised)
+                if '\r' in content:
+                    cr_count = content.count('\r')
+                    logger.warning(f"[VALLM:SYNTAX]   ⚠️ {diff.file_path} has {cr_count} stray \\r chars — CRLF not fully normalised")
+
             proposal = Proposal(
-                code=diff.modified_content,
+                code=content,
                 language=language
             )
             
@@ -106,8 +122,10 @@ class VallmAdapter:
                 result = self._syntax_validator.validate(proposal, context={})
                 
                 if result.score < 1.0:
+                    logger.warning(f"[VALLM:SYNTAX] ❌ {diff.file_path}: score={result.score:.2f}, issues={len(result.issues or [])}")
                     # Convert vallm issues to our violations
                     for issue in result.issues or []:
+                        logger.warning(f"[VALLM:SYNTAX]   line {issue.line}: {issue.message} (rule={issue.rule})")
                         violations.append(HarnessViolation(
                             severity=ViolationSeverity.ERROR,
                             check=CheckType.SYNTAX,
@@ -118,7 +136,10 @@ class VallmAdapter:
                             fix_hint="Fix the syntax error to proceed",
                             details={"source": "vallm/tree-sitter", "rule": issue.rule}
                         ))
+                else:
+                    logger.info(f"[VALLM:SYNTAX] ✅ {diff.file_path}: OK (score={result.score:.2f})")
             except Exception as e:
+                logger.error(f"[VALLM:SYNTAX] Exception checking {diff.file_path}: {e}", exc_info=True)
                 # Log but don't fail - fallback to our checker
                 violations.append(HarnessViolation(
                     severity=ViolationSeverity.WARNING,
