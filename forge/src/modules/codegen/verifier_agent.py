@@ -168,7 +168,7 @@ class VerifierTools:
             diff = self.parse_diff(diff_text)
             
             # Handle new file (--- /dev/null)
-            if diff["old_file"] in ["/dev/null", "dev/null", None] or not original_content:
+            if diff["old_file"] in ["/dev/null", "dev/null", None]:
                 lines = []
                 for hunk in diff["hunks"]:
                     for line_type, line in hunk["lines"]:
@@ -1151,24 +1151,51 @@ If everything looks correct, return {{"passed": true, "issues": [], "summary": "
         file_diffs = []
         for output in diffs:
             if output.status != "success" or not output.diff:
+                logger.debug(f"[VERIFIER] Skipping {getattr(output, 'file', '?')} — status={getattr(output, 'status', '?')}, has_diff={bool(getattr(output, 'diff', None))}")
                 continue
-            
+
             # Get original file content
             original_content = ""
             task = plan.tasks.get(output.task_id)
-            if task and task.action == "MODIFY":
+
+            # ── BUG FIX: TaskAction enum value is lowercase 'modify', not 'MODIFY'
+            # Previously: task.action == "MODIFY" → always False → original_content stayed ""
+            # → apply_diff fell into new-file branch → only + lines extracted → syntax errors
+            is_modify = (
+                task is not None and (
+                    task.action == TaskAction.MODIFY          # enum comparison
+                    or str(task.action).lower() == "modify"   # string fallback
+                    or getattr(task.action, 'value', '') == "modify"  # .value fallback
+                )
+            )
+            logger.debug(f"[VERIFIER] task_id={output.task_id} action={getattr(task, 'action', 'NO_TASK')} is_modify={is_modify}")
+
+            if is_modify:
                 result = _tools.read_file_content(output.file)
                 if result.get('exists'):
                     original_content = result.get('content', '')
-            
+                    logger.info(f"[VERIFIER] Read original {output.file}: {len(original_content)} chars, {len(original_content.splitlines())} lines")
+                else:
+                    logger.warning(f"[VERIFIER] ⚠️ MODIFY task but file not found on disk: {output.file}")
+            else:
+                logger.info(f"[VERIFIER] CREATE/DELETE task {output.task_id} — original_content stays empty")
+
             # Extract modified content from diff
             modified_content = self._apply_diff_to_get_modified(
                 original_content, output.diff
             )
-            
+
+            result_lines = len(modified_content.splitlines()) if modified_content else 0
+            orig_lines = len(original_content.splitlines()) if original_content else 0
+            logger.info(f"[VERIFIER] {output.file}: orig={orig_lines} lines → modified={result_lines} lines")
+            if result_lines < 5 and orig_lines > 0:
+                logger.warning(f"[VERIFIER] ⚠️ Suspiciously few lines after diff apply ({result_lines}) — likely diff application failure")
+            if result_lines < 5 and orig_lines == 0 and is_modify:
+                logger.error(f"[VERIFIER] ❌ MODIFY task with empty original produced {result_lines} lines — original file read failed!")
+
             # Extract service from file path
             service_id = self._extract_service_from_path(output.file)
-            
+
             file_diffs.append(FileDiff(
                 file_path=output.file,
                 original_content=original_content,
