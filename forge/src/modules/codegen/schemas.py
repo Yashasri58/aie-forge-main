@@ -107,9 +107,9 @@ class DesignDecision:
 @dataclass
 class Conventions:
     """Coding conventions to follow."""
-    naming: str
-    error_handling: str
-    logging: str
+    naming: str = ""
+    error_handling: str = ""
+    logging: str = ""
     other: list[str] = field(default_factory=list)
 
 

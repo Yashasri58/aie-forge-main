@@ -74,15 +74,24 @@ export default function CodeGen() {
   useEffect(() => {
     if (!state?.id) return;
 
-    const isTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
-    if (isTerminal) return;
+    const isFullyTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
+    if (isFullyTerminal) return;
 
-    const es = new EventSource(`/codegen/${state.id}/stream`);
+    const codegenId = state.id;
+    const es = new EventSource(`/codegen/${codegenId}/stream`);
 
-    es.onmessage = () => { refreshState(state.id); };
-    es.addEventListener("stage", () => { refreshState(state.id); });
-    es.addEventListener("done", () => { es.close(); refreshState(state.id); });
-    es.onerror = () => { es.close(); };
+    es.onmessage = () => { refreshState(codegenId); };
+    es.addEventListener("stage", () => { refreshState(codegenId); });
+    es.addEventListener("done", () => { es.close(); refreshState(codegenId); });
+    // /stream returns 404 for codegen — SSE not available.
+    // On error: close and refresh. Because stage dependency drives re-runs,
+    // each stage change will open a new SSE, get 404, refresh again.
+    // This cascades naturally through all stages until awaiting_approval.
+    es.onerror = () => {
+      es.close();
+      // Small delay so server state is settled before we fetch
+      setTimeout(() => { refreshState(codegenId); }, 500);
+    };
 
     return () => { es.close(); };
   }, [state?.id, state?.stage]);

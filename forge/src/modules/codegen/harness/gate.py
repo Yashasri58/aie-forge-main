@@ -63,7 +63,7 @@ class GateConfig:
     
     # vallm integration
     use_vallm: bool = True  # Use vallm when available
-    vallm_syntax: bool = True  # Use vallm for syntax (tree-sitter)
+    vallm_syntax: bool = False  # Disable vallm tree-sitter — v0.1.94 rejects valid JS template literals (e.g. `${VAR}`) after diff apply; use Node --check instead
     vallm_complexity: bool = True  # Use vallm for complexity (lizard)
     vallm_security: bool = True  # Use vallm security patterns (complement ours)
     complexity_threshold: int = 15  # Max cyclomatic complexity
