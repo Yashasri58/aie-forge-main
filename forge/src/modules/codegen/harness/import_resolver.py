@@ -209,48 +209,35 @@ class ImportResolver:
         all_diffs: List[FileDiff]
     ) -> Optional[HarnessViolation]:
         """Validate a relative import (./foo, ../bar)."""
-        # Get the directory of the importing file
+        # The diff file_path is service-relative, e.g. "payment-processor/src/index.js"
+        # We need to resolve the import relative to the file's directory on disk.
         file_path = Path(diff.file_path)
         
-        # For service-relative paths like "audit-service/src/utils/logger.js"
-        # Extract just the relative part within the service
-        parts = file_path.parts
-        service_idx = None
-        for i, part in enumerate(parts):
-            if part == service_id:
-                service_idx = i
-                break
-        
-        if service_idx is not None:
-            relative_parts = parts[service_idx:]
-            file_dir = Path(*relative_parts[:-1])
-        else:
-            file_dir = file_path.parent
-        
-        # Resolve the import path
-        resolved = (file_dir / import_path).resolve()
-        
+        # Build the absolute path of the importing file
+        abs_file = self.services_path / file_path
+        abs_file_dir = abs_file.parent
+
+        # Resolve import relative to the file's directory (don't call .resolve() yet)
+        raw_resolved = abs_file_dir / import_path   # e.g. .../services/payment-processor/src/utils/logger
+
         # Try different extensions
         extensions = ['', '.js', '.ts', '.jsx', '.tsx', '.json', '/index.js', '/index.ts']
-        
         for ext in extensions:
-            # Check if file exists on disk
-            # Use Path concatenation correctly — can't do WindowsPath + str
-            full_path = Path(str(self.services_path / service_id / str(resolved)) + ext)
-            if full_path.exists():
+            candidate = Path(str(raw_resolved) + ext)
+            if candidate.exists():
                 return None
-            
-            # Check relative to service root
-            service_root = self.services_path / service_id
-            test_path = Path(str(service_root / (str(resolved).lstrip('/'))) + ext)
-            if test_path.exists():
-                return None
-        
-        # Check if file is being created in this diff set
+
+        # Check if the file is being created in this same diff batch
+        # (e.g. logger.js is being created by task-1 and referenced by task-2)
+        # Normalise both paths to their stem for comparison
+        import_stem = import_path.lstrip('./').lstrip('../').replace('/', os.sep)
         for d in all_diffs:
-            if import_path in d.file_path or d.file_path.endswith(import_path.lstrip('./')):
+            d_path = d.file_path.replace('/', os.sep)
+            if d_path.endswith(import_stem + '.js') or \
+               d_path.endswith(import_stem + '.ts') or \
+               d_path.endswith(import_stem):
                 return None
-        
+
         # File not found
         return HarnessViolation(
             severity=ViolationSeverity.ERROR,
@@ -260,7 +247,7 @@ class ImportResolver:
             description=f"Cannot resolve import '{import_path}' - file not found",
             line_number=line_num,
             fix_hint=f"Create the file or fix the import path",
-            details={"import_path": import_path, "resolved": str(resolved)},
+            details={"import_path": import_path, "resolved": str(raw_resolved)},
         )
     
     def _validate_package_import(

@@ -709,8 +709,23 @@ class CoordinatorAgent:
         # Build prompt with plan details - use compact JSON to fit more content
         # Full plan is critical for validation, so we use minimal indentation
         plan_dict = plan.to_dict()
-        plan_json_compact = json.dumps(plan_dict, indent=None, separators=(',', ':'))
-        plan_json_pretty = json.dumps(plan_dict, indent=2)
+
+        # Strip before/after snippets from the plan before sending to LLM.
+        # These are code fragments (intentionally incomplete) that the LLM
+        # mis-identifies as syntax errors. The coordinator only needs to validate
+        # structural properties (file targets, deps, contracts, phases).
+        def _strip_snippets(d):
+            if isinstance(d, dict):
+                return {k: (_strip_snippets(v) if k not in ('before', 'after') else '<snippet omitted>')
+                        for k, v in d.items()}
+            if isinstance(d, list):
+                return [_strip_snippets(i) for i in d]
+            return d
+
+        plan_dict_stripped = _strip_snippets(plan_dict)
+
+        plan_json_compact = json.dumps(plan_dict_stripped, indent=None, separators=(',', ':'))
+        plan_json_pretty = json.dumps(plan_dict_stripped, indent=2)
         
         # Use compact version if pretty exceeds reasonable size, otherwise use pretty
         # Gemini 2.5 Flash has 1M context, but we want to stay reasonable

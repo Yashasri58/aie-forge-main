@@ -61,15 +61,24 @@ For each plan, verify:
 5. **Import Resolution**
    - Relative imports will resolve correctly after changes
 
+## IMPORTANT: DO NOT validate syntax of task `before`/`after` snippets
+
+The `changes[].before` and `changes[].after` fields in each task are **code fragments
+and guidance hints** for the Implementation Agent — they are intentionally incomplete
+excerpts, NOT full file contents. Do NOT run validate_js_syntax on them.
+Do NOT flag them as syntax errors. They will always look incomplete because they
+show only the relevant lines, not the entire file. Only validate actual file
+contents that you read with read_file_content().
+
 ## OUTPUT
 
 Return validation result as JSON with:
 - valid: boolean
-- errors: critical issues that block execution
+- errors: critical issues that block execution (file targets, circular deps, contract issues)
 - warnings: issues that should be reviewed
 - summary: overall assessment
 
-Be thorough. A missed issue here means broken code later.
+Be thorough on structural issues. Ignore incomplete snippets in before/after fields.
 """
 
 
