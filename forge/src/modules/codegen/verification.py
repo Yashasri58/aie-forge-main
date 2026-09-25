@@ -95,6 +95,11 @@ def apply_diff_to_content(content: str, diff_text: str) -> str:
     Returns:
         Modified content
     """
+    # Normalize line endings — CRLF files cause hunk mismatches because
+    # splitlines() strips \r but '\n'.join() doesn't add it back, leaving
+    # stray \r on context lines that produce tree-sitter parse errors.
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+
     diff = parse_unified_diff(diff_text)
     
     # Handle new file (--- /dev/null)
