@@ -27,18 +27,20 @@ type ViewMode = "plan" | "diffs";
 const STAGE_ORDER: CodeGenStage[] = [
   "pending",
   "designing",
-  "coordinating",
+  "distributing",   // backend emits this (coordinator phase)
   "implementing",
   "verifying",
+  "fixing",         // backend emits this (retry loop)
   "awaiting_approval",
 ];
 
-const STAGE_LABELS: Record<CodeGenStage, string> = {
+const STAGE_LABELS: Record<string, string> = {
   pending: "Pending",
   designing: "Designing Plan",
-  coordinating: "Coordinating Tasks",
+  distributing: "Coordinating Tasks",  // show friendly name
   implementing: "Generating Code",
   verifying: "Verifying Changes",
+  fixing: "Fixing Issues",             // show friendly name
   awaiting_approval: "Awaiting Approval",
   approved: "Approved",
   rejected: "Rejected",
@@ -74,8 +76,9 @@ export default function CodeGen() {
   useEffect(() => {
     if (!state?.id) return;
 
-    const isFullyTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
-    if (isFullyTerminal) return;
+    // Stop SSE only for truly terminal stages — awaiting_approval still needs the button to appear
+    const isSseTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
+    if (isSseTerminal) return;
 
     const codegenId = state.id;
     const es = new EventSource(`/codegen/${codegenId}/stream`);
@@ -92,12 +95,12 @@ export default function CodeGen() {
   }, [state?.id, state?.stage]);
 
   // Polling fallback — 3s interval while pipeline is running.
-  // SSE cascade alone is unreliable (404 fires once per mount, not per stage).
-  // This guarantees the UI always reflects backend state.
+  // Stops only at truly terminal stages (approved/rejected/failed).
+  // awaiting_approval is NOT terminal for polling — we need the button to appear.
   useEffect(() => {
     if (!state?.id) return;
-    const isTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
-    if (isTerminal) return;
+    const isTrulyTerminal = ["approved", "rejected", "failed"].includes(state.stage);
+    if (isTrulyTerminal) return;
 
     const codegenId = state.id;
     const timer = setInterval(() => { refreshState(codegenId); }, 3000);
@@ -396,7 +399,7 @@ export default function CodeGen() {
         </div>
 
         {/* Right: Actions Panel */}
-        <div className="w-80 flex flex-col gap-4">
+        <div className="w-80 flex flex-col gap-4 overflow-y-auto min-h-0">
           {/* Status Card */}
           <Card>
             <div className="flex items-center gap-2 mb-3">
@@ -518,7 +521,7 @@ export default function CodeGen() {
           )}
 
           {/* Action Buttons */}
-          <div className="space-y-3 mt-auto">
+          <div className="space-y-3">
 
             {/* Loading indicator — visible only while pipeline is running */}
             {isInProgress && (

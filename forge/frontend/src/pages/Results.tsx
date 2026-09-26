@@ -178,7 +178,7 @@ export default function Results() {
         </div>
 
         {/* Right: Actions Panel */}
-        <div className="w-80 flex flex-col gap-4">
+        <div className="w-80 flex flex-col gap-4 overflow-y-auto min-h-0">
           {/* Verification Summary */}
           <Card>
             <h3 className="font-medium text-[var(--color-text-primary)] mb-3 flex items-center gap-2">
@@ -240,7 +240,7 @@ export default function Results() {
           )}
 
           {/* Action Buttons */}
-          <div className="space-y-3 mt-auto">
+          <div className="space-y-3">
             <Button
               variant="success"
               size="lg"
