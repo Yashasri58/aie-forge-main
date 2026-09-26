@@ -98,38 +98,45 @@ def apply_diff_to_content(content: str, diff_text: str) -> str:
     import logging
     _log = logging.getLogger("forge.codegen.harness")
 
-    # Normalize line endings — CRLF files cause hunk mismatches because
-    # splitlines() strips \r but '\n'.join() doesn't add it back, leaving
-    # stray \r on context lines that produce tree-sitter parse errors.
+    # Normalize line endings
     content = content.replace('\r\n', '\n').replace('\r', '\n')
+    _log.info(f"[APPLY_DIFF] START: content={len(content)} chars, diff={len(diff_text)} chars")
 
     original_lines = content.splitlines()
+    _log.info(f"[APPLY_DIFF] original_lines={len(original_lines)}")
     _log.debug(f"[APPLY_DIFF] Input: {len(original_lines)} lines, diff={len(diff_text)} chars")
 
     diff = parse_unified_diff(diff_text)
+    _log.info(f"[APPLY_DIFF] parsed diff: old_file={diff['old_file']} new_file={diff['new_file']} hunks={len(diff['hunks'])}")
     
     # Handle new file (--- /dev/null)
     if diff["old_file"] == "/dev/null" or diff["old_file"] == "a//dev/null":
+        _log.info(f"[APPLY_DIFF] NEW FILE path detected — extracting + lines only")
         lines = []
         for hunk in diff["hunks"]:
             for line_type, line in hunk["lines"]:
                 if line_type == '+':
                     lines.append(line)
-        return '\n'.join(lines)
+        result = '\n'.join(lines)
+        _log.info(f"[APPLY_DIFF] NEW FILE result: {len(lines)} lines, {len(result)} chars")
+        return result
     
     # Apply hunks to existing content
     original_lines = content.splitlines()
     result_lines = []
     current_line = 0
+    _log.info(f"[APPLY_DIFF] applying {len(diff['hunks'])} hunks to {len(original_lines)} original lines")
     
-    for hunk in diff["hunks"]:
+    for hi, hunk in enumerate(diff["hunks"]):
         old_start = hunk["old_start"] - 1  # Convert to 0-indexed
+        _log.info(f"[APPLY_DIFF] hunk[{hi}]: old_start={old_start} old_count={hunk.get('old_count')} new_count={hunk.get('new_count')} lines={len(hunk['lines'])}")
         
         # Copy lines before this hunk
         while current_line < old_start:
             if current_line < len(original_lines):
                 result_lines.append(original_lines[current_line])
             current_line += 1
+        _log.info(f"[APPLY_DIFF] hunk[{hi}]: copied context up to line {current_line}, result_lines={len(result_lines)}")
         
         # Apply hunk
         for line_type, line in hunk["lines"]:
@@ -144,17 +151,21 @@ def apply_diff_to_content(content: str, diff_text: str) -> str:
             elif line_type == '+':
                 # Added line
                 result_lines.append(line)
+        _log.info(f"[APPLY_DIFF] hunk[{hi}] applied: current_line={current_line} result_lines={len(result_lines)}")
     
     # Copy remaining lines
     while current_line < len(original_lines):
         result_lines.append(original_lines[current_line])
         current_line += 1
+    _log.info(f"[APPLY_DIFF] after remaining lines copy: result_lines={len(result_lines)}")
     
     result = '\n'.join(result_lines)
+    _log.info(f"[APPLY_DIFF] joined result: {len(result)} chars, {len(result_lines)} lines")
 
-    # Sanity check: warn if result has stray \r (means CRLF normalisation missed something)
+    # Sanity check: warn if result has stray \r
     if '\r' in result:
         _log.warning(f"[APPLY_DIFF] ⚠️ Result still has {result.count(chr(13))} stray \\r chars after normalisation")
+    _log.info(f"[APPLY_DIFF] DONE: output {len(result_lines)} lines, {len(result)} chars")
     _log.debug(f"[APPLY_DIFF] Output: {len(result_lines)} lines, {len(result)} chars")
 
     return result

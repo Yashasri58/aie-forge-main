@@ -9,6 +9,8 @@ Simple code (not LLM) that:
 
 from pathlib import Path
 from typing import Optional
+import logging
+_log = logging.getLogger("forge.codegen.coordinator")
 
 from .schemas import (
     Plan,
@@ -43,26 +45,18 @@ class Coordinator:
     """
     
     def __init__(self, services_path: str):
-        """
-        Args:
-            services_path: Path to the services directory
-        """
+        _log.info(f"[COORD] __init__: services_path={services_path}")
         self._services_path = Path(services_path)
+        _log.info(f"[COORD] _services_path set to {self._services_path}")
     
     def validate(self, plan: Plan) -> list[str]:
-        """
-        Validate a plan.
-        
-        Args:
-            plan: The plan to validate
-            
-        Returns:
-            List of validation errors (empty if valid)
-        """
+        """Validate a plan. Returns list of validation errors (empty if valid)."""
+        _log.info(f"[COORD] validate(): tasks={len(plan.tasks)} contracts={len(plan.contracts)} phases={len(plan.execution)}")
         errors = []
         
         # Check required fields
         if not plan.change_request:
+            _log.warning(f"[COORD] validate: missing change_request")
             errors.append("Missing change_request")
         
         if not plan.tasks:
@@ -186,20 +180,14 @@ class Coordinator:
         return None
     
     def create_task_files(self, plan: Plan) -> dict[str, TaskFile]:
-        """
-        Create task files for all tasks in the plan.
-        
-        Args:
-            plan: The validated plan
-            
-        Returns:
-            Dict of task_id -> TaskFile
-        """
+        """Create task files for all tasks in the plan."""
+        _log.info(f"[COORD] create_task_files(): tasks={len(plan.tasks)}")
         # Convert contracts to dicts for task files
         contracts_dict = {
             name: contract.to_dict()
             for name, contract in plan.contracts.items()
         }
+        _log.info(f"[COORD] contracts_dict keys={list(contracts_dict.keys())}")
         
         # Get design decisions as list of strings
         design_decisions = []
@@ -240,6 +228,7 @@ class Coordinator:
                             pass
             
             # Create task file
+            _log.info(f"[COORD] creating TaskFile: task_id={task_id} file={task.file} action={task.action} current_content_len={len(current_content) if current_content else 0}")
             task_file = TaskFile(
                 task_id=task_id,
                 file=task.file,
@@ -254,29 +243,26 @@ class Coordinator:
                 design_decisions=design_decisions,
                 conventions=conventions,
             )
+            _log.info(f"[COORD] TaskFile created: task_id={task_id}")
             
             task_files[task_id] = task_file
+            _log.info(f"[COORD] task_files now has {len(task_files)} entries")
         
+        _log.info(f"[COORD] create_task_files done: {len(task_files)} task files: {list(task_files.keys())}")
         return task_files
     
     def get_execution_order(self, plan: Plan) -> list[ExecutionPhase]:
-        """
-        Get the execution order from the plan.
-        
-        If plan has explicit phases, use those.
-        Otherwise, compute from dependencies.
-        
-        Args:
-            plan: The validated plan
-            
-        Returns:
-            List of ExecutionPhase in order
-        """
+        """Get the execution order from the plan."""
+        _log.info(f"[COORD] get_execution_order(): plan.execution has {len(plan.execution)} phases")
         if plan.execution:
-            return sorted(plan.execution, key=lambda p: p.phase)
+            result = sorted(plan.execution, key=lambda p: p.phase)
+            _log.info(f"[COORD] using explicit phases: {[(p.phase, p.description, p.tasks) for p in result]}")
+            return result
         
-        # Compute phases from dependencies using topological sort
-        return self._compute_phases(plan)
+        _log.info(f"[COORD] no explicit phases — computing from dependencies")
+        result = self._compute_phases(plan)
+        _log.info(f"[COORD] computed {len(result)} phases")
+        return result
     
     def _compute_phases(self, plan: Plan) -> list[ExecutionPhase]:
         """Compute execution phases from task dependencies."""

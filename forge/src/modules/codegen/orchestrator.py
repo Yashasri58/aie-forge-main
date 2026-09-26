@@ -89,83 +89,111 @@ class CodeGenOrchestrator:
             graph_store: KuzuGraphStore instance
             services_path: Path to the services directory
         """
+        logger.info(f"[ORCH_INIT] CodeGenOrchestrator.__init__() services_path={services_path}")
         self._graph_store = graph_store
+        logger.info(f"[ORCH_INIT] graph_store assigned: {type(graph_store).__name__}")
         self._services_path = services_path
+        logger.info(f"[ORCH_INIT] services_path assigned")
         
         # Initialize components
+        logger.info(f"[ORCH_INIT] creating DesignAgent")
         self._design_agent = DesignAgent(graph_store, services_path)
+        logger.info(f"[ORCH_INIT] DesignAgent created")
+        logger.info(f"[ORCH_INIT] creating CoordinatorAgent")
         self._coordinator = CoordinatorAgent(services_path)
+        logger.info(f"[ORCH_INIT] CoordinatorAgent created")
+        logger.info(f"[ORCH_INIT] creating VerifierAgent")
         self._verifier = VerifierAgent(services_path)
+        logger.info(f"[ORCH_INIT] VerifierAgent created")
         
         # State storage
         self._states: dict[str, CodeGenState] = {}
+        logger.info(f"[ORCH_INIT] _states dict initialized empty")
+        logger.info(f"[ORCH_INIT] ✅ CodeGenOrchestrator ready")
     
     async def start(self, impact_report: dict) -> CodeGenState:
         """
         Start code generation from an approved impact report.
-        
-        Args:
-            impact_report: The approved impact report containing:
-                - change_request: Original user request
-                - report: The layered impact report text
-                - requirements: Original requirements
-                
-        Returns:
-            CodeGenState tracking the pipeline
         """
+        logger.info(f"[START] ▶️  start() called")
+        logger.info(f"[START] impact_report keys={list(impact_report.keys())}")
+        logger.info(f"[START] change_request='{impact_report.get('change_request','')[:80]}'")
+        logger.info(f"[START] services={impact_report.get('requirements', {}).get('services', []) if isinstance(impact_report.get('requirements'), dict) else 'n/a'}")
+
         # Create state
+        logger.info(f"[START] calling CodeGenState.create()")
         state = CodeGenState.create(impact_report)
+        logger.info(f"[START] state created: id={state.id} stage={state.stage}")
         self._states[state.id] = state
-        
+        logger.info(f"[START] state stored in _states, total states={len(self._states)}")
+
         state.log(f"Starting code generation: {impact_report.get('change_request', '')[:100]}")
-        
+        logger.info(f"[START] activity log entry added")
+
         # Run the pipeline
+        logger.info(f"[START] calling _run_pipeline(state={state.id})")
         try:
             state = await self._run_pipeline(state)
+            logger.info(f"[START] _run_pipeline returned: stage={state.stage} error={state.error}")
         except Exception as e:
+            logger.error(f"[START] _run_pipeline RAISED UNHANDLED: {e}", exc_info=True)
             state.stage = CodeGenStage.FAILED
+            logger.info(f"[START] stage → FAILED due to exception")
             state.error = str(e)
+            logger.info(f"[START] state.error = '{state.error}'")
             state.log(f"Pipeline failed: {e}", "error")
-        
+            logger.info(f"[START] activity log entry added for failure")
+
+        logger.info(f"[START] ✅ start() returning: stage={state.stage}")
         return state
     
     async def _run_pipeline(self, state: CodeGenState) -> CodeGenState:
         """Run the full code generation pipeline."""
-        
+        logger.info(f"[PIPELINE] ▶️  _run_pipeline START — state.id={state.id} stage={state.stage}")
+
         # === PHASE 1: DESIGN ===
         log_stage_change(logger, "PENDING", "DESIGNING")
         state.stage = CodeGenStage.DESIGNING
+        logger.info(f"[PIPELINE] 📍 stage → DESIGNING (state={state.id})")
         state.log("Starting Design Agent...")
         logger.info("🎨 Design Agent starting plan creation...")
         
         try:
+            logger.info(f"[PIPELINE][DESIGN] calling create_plan, impact_report keys={list((state.impact_report or {}).keys())}")
             self._design_agent._pipeline_id = state.id  # token tracking
             plan = await self._design_agent.create_plan(state.impact_report)
+            logger.info(f"[PIPELINE][DESIGN] create_plan returned — tasks={len(plan.tasks)} contracts={len(plan.contracts)}")
             state.plan = plan
             state.log(f"Plan created: {len(plan.tasks)} tasks, {len(plan.contracts)} contracts", "success")
             logger.info(f"✅ Design Agent completed: {len(plan.tasks)} tasks, {len(plan.contracts)} contracts")
             for task_id, task in plan.tasks.items():
                 logger.debug(f"   └─ Task {task_id}: {task.action} {task.file}")
         except Exception as e:
+            logger.error(f"[PIPELINE][DESIGN] create_plan RAISED: {e}", exc_info=True)
             state.stage = CodeGenStage.FAILED
             state.error = f"Design failed: {e}"
             state.log(f"Design Agent failed: {e}", "error")
             logger.error(f"❌ Design Agent failed: {e}", exc_info=True)
             return state
+        logger.info(f"[PIPELINE] ✅ DESIGN complete — moving to DISTRIBUTING")
         
         # === PHASE 2: VALIDATE & DISTRIBUTE ===
         log_stage_change(logger, "DESIGNING", "DISTRIBUTING")
         state.stage = CodeGenStage.DISTRIBUTING
+        logger.info(f"[PIPELINE] 📍 stage → DISTRIBUTING (state={state.id})")
         state.log("Validating plan...")
         logger.info("📋 Validating plan...")
         
         # Use Coordinator Agent for intelligent validation
+        logger.info(f"[PIPELINE][COORDINATOR] calling validate(), tasks={len(plan.tasks)}")
         self._coordinator._pipeline_id = state.id  # for token tracking
         validation_result = await self._coordinator.validate(plan)
+        logger.info(f"[PIPELINE][COORDINATOR] validate() returned: valid={validation_result.get('valid')} errors={len(validation_result.get('errors',[]))} warnings={len(validation_result.get('warnings',[]))}")
         
         if not validation_result.get("valid", False):
             errors = validation_result.get("errors", [])
             error_msgs = [e.get("issue", str(e)) for e in errors]
+            logger.error(f"[PIPELINE][COORDINATOR] VALIDATION FAILED: {error_msgs}")
             state.stage = CodeGenStage.FAILED
             state.error = f"Plan validation failed: {error_msgs}"
             state.log(f"Validation errors: {error_msgs}", "error")
@@ -183,41 +211,55 @@ class CodeGenOrchestrator:
         logger.info("✅ Plan validated successfully")
         
         # Create task files
+        logger.info(f"[PIPELINE][COORDINATOR] calling create_task_files()")
         task_files = self._coordinator.create_task_files(plan)
+        logger.info(f"[PIPELINE][COORDINATOR] create_task_files() → {len(task_files)} files: {list(task_files.keys())}")
         state.log(f"Created {len(task_files)} task files")
         logger.info(f"📁 Created {len(task_files)} task files")
         for task_id, tf in task_files.items():
             logger.debug(f"   └─ {task_id}: {tf.file} ({tf.action})")
         
         # Get execution order
+        logger.info(f"[PIPELINE][COORDINATOR] calling get_execution_order()")
         phases = self._coordinator.get_execution_order(plan)
+        logger.info(f"[PIPELINE][COORDINATOR] get_execution_order() → {len(phases)} phases: {[(p.phase, p.description, len(p.tasks)) for p in phases]}")
         state.log(f"Execution order: {len(phases)} phases")
         logger.info(f"📊 Execution order: {len(phases)} phases")
         
         # === PHASE 3: IMPLEMENT ===
         log_stage_change(logger, "DISTRIBUTING", "IMPLEMENTING")
         state.stage = CodeGenStage.IMPLEMENTING
+        logger.info(f"[PIPELINE] 📍 stage → IMPLEMENTING (state={state.id})")
         state.log("Starting implementation...")
         logger.info("🔨 Starting implementation...")
         
         all_diffs = []
+        logger.info(f"[PIPELINE][IMPL] Starting phase loop — {len(phases)} phases total")
         
         for phase in phases:
+            logger.info(f"[PIPELINE][IMPL] ▶️  Phase {phase.phase} START: '{phase.description}' tasks={phase.tasks} parallel={phase.parallel}")
             state.log(f"Phase {phase.phase}: {phase.description}")
             logger.info(f"📌 Phase {phase.phase}: {phase.description} ({len(phase.tasks)} tasks)")
             
             # Get tasks for this phase
             phase_task_files = [task_files[task_id] for task_id in phase.tasks]
+            logger.info(f"[PIPELINE][IMPL] Phase {phase.phase} task files: {[tf.file for tf in phase_task_files]}")
             
             # Run tasks
             if phase.parallel and len(phase_task_files) > 1:
+                logger.info(f"[PIPELINE][IMPL] Phase {phase.phase} → running PARALLEL ({len(phase_task_files)} tasks)")
                 logger.info(f"   └─ Running {len(phase_task_files)} tasks in parallel")
                 diffs = await self._run_parallel(phase_task_files, pipeline_id=state.id)
             else:
+                logger.info(f"[PIPELINE][IMPL] Phase {phase.phase} → running SEQUENTIAL ({len(phase_task_files)} tasks)")
                 logger.info(f"   └─ Running {len(phase_task_files)} tasks sequentially")
                 diffs = await self._run_sequential(phase_task_files, pipeline_id=state.id)
             
+            logger.info(f"[PIPELINE][IMPL] Phase {phase.phase} returned {len(diffs)} diffs")
+            for d in diffs:
+                logger.info(f"[PIPELINE][IMPL]   diff task_id={d.task_id} file={d.file} status={d.status} diff_len={len(d.diff or '')} error={d.error_message or ''}")
             all_diffs.extend(diffs)
+            logger.info(f"[PIPELINE][IMPL] all_diffs accumulated: {len(all_diffs)} total")
             
             # Log results
             success_count = sum(1 for d in diffs if d.status == "success")
@@ -233,28 +275,40 @@ class CodeGenOrchestrator:
             
             # Check for failures
             failures = [d for d in diffs if d.status != "success"]
+            logger.info(f"[PIPELINE][IMPL] Phase {phase.phase} failures={len(failures)} wait_for_completion={phase.wait_for_completion}")
             if failures and phase.wait_for_completion:
                 state.failed_tasks.extend([d.task_id for d in failures])
                 state.log(f"Phase {phase.phase} had failures", "warning")
                 logger.warning(f"⚠️ Phase {phase.phase} had {len(failures)} failures")
+            
+            logger.info(f"[PIPELINE][IMPL] ✅ Phase {phase.phase} END")
         
         state.diffs = all_diffs
+        logger.info(f"[PIPELINE][IMPL] All phases done — total diffs={len(all_diffs)} successful={sum(1 for d in all_diffs if d.status=='success')}")
         
         # === PHASE 4: VERIFY ===
         log_stage_change(logger, "IMPLEMENTING", "VERIFYING")
         state.stage = CodeGenStage.VERIFYING
+        logger.info(f"[PIPELINE] 📍 stage → VERIFYING (state={state.id})")
         state.log("Starting verification...")
         logger.info("🔍 Starting verification...")
         
         successful_diffs = [d for d in all_diffs if d.status == "success"]
+        logger.info(f"[PIPELINE][VERIFY] successful_diffs={len(successful_diffs)} of {len(all_diffs)} total")
+        for d in successful_diffs:
+            logger.info(f"[PIPELINE][VERIFY]   → {d.task_id} file={d.file} diff_len={len(d.diff or '')}")
         
         try:
+            logger.info(f"[PIPELINE][VERIFY] calling verifier.verify() plan_tasks={len(plan.tasks)} diffs={len(successful_diffs)}")
             # Use Verifier Agent for intelligent verification
             self._verifier._pipeline_id = state.id  # token tracking
             verification = await self._verifier.verify(
                 plan=plan,
                 diffs=successful_diffs,
             )
+            logger.info(f"[PIPELINE][VERIFY] verify() returned: passed={verification.passed} issues={len(verification.issues)}")
+            for iss in verification.issues:
+                logger.info(f"[PIPELINE][VERIFY]   issue severity={iss.severity} file={iss.file} issue='{iss.issue}'")
             state.verification = verification
             
             if verification.passed:
@@ -267,6 +321,7 @@ class CodeGenOrchestrator:
                 for issue in verification.issues:
                     logger.warning(f"   └─ [{issue.severity}] {issue.file}: {issue.issue}")
         except Exception as e:
+            logger.error(f"[PIPELINE][VERIFY] verifier.verify() RAISED: {e}", exc_info=True)
             state.log(f"Verification error: {e}", "warning")
             logger.error(f"❌ Verification error: {e}", exc_info=True)
             # Non-fatal but mark as NOT passed so human sees it at approval
@@ -283,51 +338,86 @@ class CodeGenOrchestrator:
             )
         
         # === PHASE 5: RETRY (if needed) ===
+        logger.info(f"[PIPELINE] 📍 Checking retry: verification.passed={state.verification.passed} iteration={state.iteration} max={state.max_iterations}")
         if not state.verification.passed and state.iteration < state.max_iterations:
+            logger.info(f"[PIPELINE][RETRY] verification failed and iteration budget remains — checking for stale errors")
             # Check if all errors are identical to previous iteration (stale — won't improve)
             current_error_set = frozenset(
                 i.issue for i in state.verification.issues if i.severity == "error"
             )
+            logger.info(f"[PIPELINE][RETRY] current_error_set size={len(current_error_set)}: {current_error_set}")
             prev_error_set = getattr(state, '_prev_error_set', None)
+            logger.info(f"[PIPELINE][RETRY] prev_error_set={prev_error_set}")
             
             if prev_error_set is not None and current_error_set == prev_error_set:
                 logger.warning(
                     f"⏭ Errors identical to previous iteration — skipping retry "
                     f"(same {len(current_error_set)} errors, retrying won't help)"
                 )
+                logger.warning(f"[PIPELINE][RETRY] STALE — skipping retry, proceeding to approval")
                 state.log(
                     f"Errors unchanged after retry — skipping further retries", "warning"
                 )
             else:
+                logger.info(f"[PIPELINE][RETRY] errors changed or first retry — recording and retrying")
                 state._prev_error_set = current_error_set
+                logger.info(f"[PIPELINE][RETRY] calling _retry_failed()")
                 state = await self._retry_failed(state, task_files)
+                logger.info(f"[PIPELINE][RETRY] _retry_failed returned: stage={state.stage} verification.passed={state.verification.passed if state.verification else 'None'}")
+        else:
+            logger.info(f"[PIPELINE] no retry needed: passed={state.verification.passed} iteration={state.iteration}/{state.max_iterations}")
         
         # === PHASE 6: READY FOR APPROVAL ===
+        logger.info(f"[PIPELINE] 📍 stage → AWAITING_APPROVAL (state={state.id})")
         state.stage = CodeGenStage.AWAITING_APPROVAL
         state.log("Code generation complete - awaiting approval", "success")
+        logger.info(f"[PIPELINE] ✅ _run_pipeline END — final stage={state.stage}")
         
         return state
     
     async def _run_parallel(self, task_files: list[TaskFile], pipeline_id: str = "") -> list[AgentOutput]:
         """Run implementation agents in parallel with concurrency limit."""
+        logger.info(f"[PARALLEL] ▶️  _run_parallel called: {len(task_files)} tasks pipeline_id={pipeline_id}")
+        for i, tf in enumerate(task_files):
+            logger.info(f"[PARALLEL]   task[{i}]: id={tf.task_id} file={tf.file} action={tf.action}")
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
+        logger.info(f"[PARALLEL] semaphore created MAX_CONCURRENT_AGENTS={MAX_CONCURRENT_AGENTS}")
         
         async def run_with_limit(task_file: TaskFile) -> AgentOutput:
+            logger.info(f"[PARALLEL][SLOT] waiting for semaphore: task={task_file.task_id}")
             async with semaphore:
+                logger.info(f"[PARALLEL][SLOT] semaphore acquired: task={task_file.task_id}")
                 agent = ImplementationAgent(self._services_path)
-                return await agent.implement(task_file, pipeline_id=pipeline_id)
+                logger.info(f"[PARALLEL][SLOT] ImplementationAgent created for task={task_file.task_id}")
+                result = await agent.implement(task_file, pipeline_id=pipeline_id)
+                logger.info(f"[PARALLEL][SLOT] implement() returned: task={task_file.task_id} status={result.status} diff_len={len(result.diff or '')}")
+                return result
         
-        return await asyncio.gather(*[
+        logger.info(f"[PARALLEL] launching asyncio.gather for {len(task_files)} tasks")
+        results = await asyncio.gather(*[
             run_with_limit(tf) for tf in task_files
         ])
+        logger.info(f"[PARALLEL] asyncio.gather done: {len(results)} results")
+        for r in results:
+            logger.info(f"[PARALLEL]   result: task={r.task_id} file={r.file} status={r.status} error={r.error_message or ''}")
+        return list(results)
     
     async def _run_sequential(self, task_files: list[TaskFile], pipeline_id: str = "") -> list[AgentOutput]:
         """Run implementation agents sequentially."""
+        logger.info(f"[SEQUENTIAL] ▶️  _run_sequential called: {len(task_files)} tasks pipeline_id={pipeline_id}")
+        for i, tf in enumerate(task_files):
+            logger.info(f"[SEQUENTIAL]   task[{i}]: id={tf.task_id} file={tf.file} action={tf.action}")
         results = []
-        for task_file in task_files:
+        logger.info(f"[SEQUENTIAL] results list initialized empty")
+        for idx, task_file in enumerate(task_files):
+            logger.info(f"[SEQUENTIAL] ▶️  task {idx+1}/{len(task_files)}: id={task_file.task_id} file={task_file.file}")
             agent = ImplementationAgent(self._services_path)
+            logger.info(f"[SEQUENTIAL] ImplementationAgent instance created")
             result = await agent.implement(task_file, pipeline_id=pipeline_id)
+            logger.info(f"[SEQUENTIAL] implement() returned: status={result.status} diff_len={len(result.diff or '')} error={result.error_message or ''}")
             results.append(result)
+            logger.info(f"[SEQUENTIAL] results now has {len(results)} items")
+        logger.info(f"[SEQUENTIAL] ✅ done: {len(results)} total results")
         return results
     
     async def _retry_failed(
@@ -336,19 +426,26 @@ class CodeGenOrchestrator:
         task_files: dict[str, TaskFile]
     ) -> CodeGenState:
         """Retry failed tasks based on verification errors."""
+        logger.info(f"[RETRY] ▶️  _retry_failed START: state={state.id} iteration={state.iteration} max={state.max_iterations}")
         state.stage = CodeGenStage.FIXING
+        logger.info(f"[RETRY] stage → FIXING")
         state.iteration += 1
+        logger.info(f"[RETRY] iteration incremented → {state.iteration}")
         state.log(f"Retry iteration {state.iteration}: fixing issues...")
         logger.info(f"🔄 Starting retry iteration {state.iteration}/{state.max_iterations}")
         
         # Group errors by task_id (preferred) or file
         errors_by_task = {}
+        logger.info(f"[RETRY] building errors_by_task from {len(state.verification.issues)} issues")
         for issue in state.verification.issues:
+            logger.info(f"[RETRY]   issue: severity={issue.severity} task_id={issue.task_id} file={issue.file} issue='{issue.issue}'")
             if issue.severity == "error":
                 # Prefer task_id if available
                 key = issue.task_id or issue.file
+                logger.info(f"[RETRY]   → key={key}")
                 if key not in errors_by_task:
                     errors_by_task[key] = []
+                    logger.info(f"[RETRY]   new key '{key}' added to errors_by_task")
                 
                 # Build structured feedback
                 feedback = {
@@ -360,69 +457,101 @@ class CodeGenOrchestrator:
                     "actual": issue.actual,
                     "line": issue.line,
                 }
+                logger.info(f"[RETRY]   feedback built: {feedback}")
                 errors_by_task[key].append(feedback)
+                logger.info(f"[RETRY]   errors_by_task['{key}'] now has {len(errors_by_task[key])} entries")
         
+        logger.info(f"[RETRY] errors_by_task keys={list(errors_by_task.keys())}")
         logger.info(f"   └─ Tasks with errors: {len(errors_by_task)}")
         for task_key, errors in errors_by_task.items():
             logger.debug(f"      └─ {task_key}: {len(errors)} errors")
         
         # Retry failed tasks
         new_diffs = []
+        logger.info(f"[RETRY] new_diffs list initialized empty")
+        logger.info(f"[RETRY] iterating over {len(task_files)} task_files")
         for task_id, task_file in task_files.items():
+            logger.info(f"[RETRY] checking task_id={task_id} file={task_file.file}")
             # Check if this task has errors (by task_id or file)
             task_errors = errors_by_task.get(task_id) or errors_by_task.get(task_file.file)
+            logger.info(f"[RETRY]   task_errors for '{task_id}': {len(task_errors) if task_errors else 0} errors")
             
             if task_errors:
+                logger.info(f"[RETRY]   → task HAS errors, attempting fix")
                 # Find the original diff
                 original_diff = next(
                     (d for d in state.diffs if d.task_id == task_id),
                     None
                 )
+                logger.info(f"[RETRY]   original_diff found={original_diff is not None} diff_len={len(original_diff.diff) if original_diff and original_diff.diff else 0}")
                 
                 if original_diff and original_diff.diff:
+                    logger.info(f"[RETRY]   calling fix_diff for {task_file.file}")
                     state.log(f"Fixing {task_file.file} ({len(task_errors)} errors)...")
                     
                     agent = ImplementationAgent(self._services_path)
+                    logger.info(f"[RETRY]   ImplementationAgent created for fix")
                     fixed = await agent.fix_diff(
                         task_file,
                         original_diff.diff,
                         task_errors  # Pass structured feedback
                     )
+                    logger.info(f"[RETRY]   fix_diff returned: status={fixed.status} diff_len={len(fixed.diff or '')} error={fixed.error_message or ''}")
                     new_diffs.append(fixed)
+                    logger.info(f"[RETRY]   fixed diff appended, new_diffs={len(new_diffs)}")
                 else:
+                    logger.info(f"[RETRY]   no original diff — re-running implement() from scratch")
                     # Re-run from scratch
                     agent = ImplementationAgent(self._services_path)
-                    new_diffs.append(await agent.implement(task_file, pipeline_id=state.id))
+                    result = await agent.implement(task_file, pipeline_id=state.id)
+                    logger.info(f"[RETRY]   implement() from scratch returned: status={result.status} diff_len={len(result.diff or '')}")
+                    new_diffs.append(result)
+                    logger.info(f"[RETRY]   new_diffs={len(new_diffs)}")
             else:
+                logger.info(f"[RETRY]   → task has NO errors, keeping original diff")
                 # Keep original
                 original = next(
                     (d for d in state.diffs if d.task_id == task_id),
                     None
                 )
+                logger.info(f"[RETRY]   original found={original is not None}")
                 if original:
                     new_diffs.append(original)
+                    logger.info(f"[RETRY]   kept original diff, new_diffs={len(new_diffs)}")
         
+        logger.info(f"[RETRY] new_diffs assembled: {len(new_diffs)} total")
+        for d in new_diffs:
+            logger.info(f"[RETRY]   diff: task={d.task_id} file={d.file} status={d.status} diff_len={len(d.diff or '')}")
         state.diffs = new_diffs
+        logger.info(f"[RETRY] state.diffs updated")
         
         # Re-verify
         state.stage = CodeGenStage.VERIFYING
+        logger.info(f"[RETRY] stage → VERIFYING for re-verify")
         state.log("Re-verifying...")
         
         successful_diffs = [d for d in new_diffs if d.status == "success"]
+        logger.info(f"[RETRY] successful_diffs for re-verify: {len(successful_diffs)} of {len(new_diffs)}")
         
         try:
+            logger.info(f"[RETRY] calling verifier.verify() plan_tasks={len(state.plan.tasks)} diffs={len(successful_diffs)}")
             self._verifier._pipeline_id = state.id  # token tracking
             verification = await self._verifier.verify(
                 plan=state.plan,
                 diffs=successful_diffs,
             )
+            logger.info(f"[RETRY] verify() returned: passed={verification.passed} issues={len(verification.issues)}")
+            for iss in verification.issues:
+                logger.info(f"[RETRY]   issue: severity={iss.severity} file={iss.file} issue='{iss.issue}'")
             state.verification = verification
+            logger.info(f"[RETRY] state.verification updated")
             
             if verification.passed:
                 state.log("Verification passed after fixes!", "success")
                 logger.info("✅ Verification passed after retry")
             else:
                 error_count = sum(1 for i in verification.issues if i.severity == "error")
+                logger.info(f"[RETRY] still failing: error_count={error_count}")
                 state.log(f"Still {error_count} errors after retry", "warning")
                 logger.warning(f"⚠️ Still {error_count} errors after retry {state.iteration}")
                 
@@ -430,24 +559,32 @@ class CodeGenOrchestrator:
                 current_error_set = frozenset(
                     i.issue for i in verification.issues if i.severity == "error"
                 )
+                logger.info(f"[RETRY] current_error_set={current_error_set}")
                 prev_error_set = getattr(state, '_prev_error_set', None)
+                logger.info(f"[RETRY] prev_error_set={prev_error_set}")
                 
                 if prev_error_set is not None and current_error_set == prev_error_set:
                     logger.warning(
                         f"⏭ Errors identical to previous retry — stopping "
                         f"(same {len(current_error_set)} errors, further retries won't help)"
                     )
+                    logger.warning(f"[RETRY] STALE errors — stopping retry loop")
                     state.log("Errors unchanged — stopping retry loop", "warning")
                 elif state.iteration < state.max_iterations:
+                    logger.info(f"[RETRY] errors changed AND iteration budget remains ({state.iteration}<{state.max_iterations}) — recursing")
                     # Still have budget and new errors — continue
                     state._prev_error_set = current_error_set
+                    logger.info(f"[RETRY] _prev_error_set updated, calling _retry_failed recursively")
                     return await self._retry_failed(state, task_files)
                 else:
+                    logger.info(f"[RETRY] max iterations reached ({state.max_iterations}) — stopping")
                     logger.info(f"[RETRY] Max iterations ({state.max_iterations}) reached")
                     
         except Exception as e:
+            logger.error(f"[RETRY] verifier.verify() RAISED: {e}", exc_info=True)
             state.log(f"Verification error during retry: {e}", "warning")
         
+        logger.info(f"[RETRY] ✅ _retry_failed END: stage={state.stage} verification.passed={state.verification.passed if state.verification else 'None'}")
         return state
     
     async def approve(self, state_id: str) -> CodeGenState:

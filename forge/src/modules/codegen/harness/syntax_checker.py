@@ -129,10 +129,12 @@ class SyntaxChecker:
         Returns None if node check fails (fallback to other methods).
         """
         violations = []
+        logger.info(f"[SYNTAX][NODE] _check_with_node: file={diff.file_path} content_len={len(diff.modified_content or '')}")
         
         try:
             # Write content to temp file
             suffix = Path(diff.file_path).suffix or '.js'
+            logger.info(f"[SYNTAX][NODE] creating temp file suffix={suffix}")
             with tempfile.NamedTemporaryFile(
                 mode='w',
                 suffix=suffix,
@@ -141,47 +143,98 @@ class SyntaxChecker:
             ) as f:
                 f.write(diff.modified_content)
                 temp_path = f.name
+            logger.info(f"[SYNTAX][NODE] temp file written: {temp_path}")
             
             try:
                 # Run node --check
+                logger.info(f"[SYNTAX][NODE] running: node --check {temp_path}")
                 result = subprocess.run(
                     [self.node_path, "--check", temp_path],
                     capture_output=True,
                     text=True,
                     timeout=10
                 )
+                logger.info(f"[SYNTAX][NODE] node returncode={result.returncode}")
+                logger.info(f"[SYNTAX][NODE] node stdout={result.stdout[:300]!r}")
+                logger.info(f"[SYNTAX][NODE] node stderr={result.stderr[:300]!r}")
                 
                 if result.returncode != 0:
                     # Parse error message
                     error_msg = result.stderr or result.stdout
+                    logger.info(f"[SYNTAX][NODE] SYNTAX ERROR raw error_msg={error_msg[:300]!r}")
                     line_num = self._extract_line_number(error_msg)
+                    logger.info(f"[SYNTAX][NODE] extracted line_num={line_num}")
+                    clean_msg = self._clean_error_message(error_msg)
+                    logger.info(f"[SYNTAX][NODE] clean_msg={clean_msg!r}")
                     
                     violations.append(HarnessViolation(
                         severity=ViolationSeverity.ERROR,
                         check=CheckType.SYNTAX,
                         service_id=service_id,
                         file_path=diff.file_path,
-                        description=self._clean_error_message(error_msg),
+                        description=clean_msg,
                         line_number=line_num,
                         fix_hint="Fix the syntax error before proceeding",
                     ))
+                    logger.info(f"[SYNTAX][NODE] violation added: line={line_num} desc={clean_msg!r}")
+                else:
+                    logger.info(f"[SYNTAX][NODE] PASS — no syntax errors")
             finally:
                 os.unlink(temp_path)
+                logger.info(f"[SYNTAX][NODE] temp file deleted")
             
+            logger.info(f"[SYNTAX][NODE] returning {len(violations)} violations")
             return violations
             
         except subprocess.TimeoutExpired:
+            logger.warning(f"[SYNTAX][NODE] TIMEOUT — falling back")
             return None  # Timeout - fall back to other methods
-        except Exception:
+        except Exception as e:
+            logger.error(f"[SYNTAX][NODE] EXCEPTION: {e}", exc_info=True)
             return None  # Any error - fall back
     
     def _extract_line_number(self, error_msg: str) -> Optional[int]:
         """Extract line number from node error message."""
-        # Pattern: filename:line:column
-        match = re.search(r':(\d+):\d+', error_msg)
+        logger.info(f"[SYNTAX][LINE_NUM] extracting from: {error_msg[:200]!r}")
+        # node stderr format: C:\path\to\tmpXXX.js:LINE\n  code\n  ^\n\nSyntaxError: ...
+        # We must match the FIRST :LINE: occurrence (the file line), NOT internal stack traces.
+        # Strategy: find the temp file path pattern and grab the line number immediately after it.
+        match = re.search(r'\.js:(\d+)\n', error_msg)
         if match:
-            return int(match.group(1))
+            val = int(match.group(1))
+            logger.info(f"[SYNTAX][LINE_NUM] matched file:line pattern → line={val}")
+            return val
+        # Fallback: first :digits: not preceded by internal/ (avoids loader:1713)
+        match = re.search(r'(?<!internal/modules/cjs/loader):(\d+):\d+', error_msg)
+        if match:
+            val = int(match.group(1))
+            logger.info(f"[SYNTAX][LINE_NUM] fallback match → line={val}")
+            return val
+        logger.warning(f"[SYNTAX][LINE_NUM] no match found — returning None")
         return None
+
+    def _clean_error_message(self, error_msg: str) -> str:
+        """Clean up node error message for display."""
+        logger.info(f"[SYNTAX][CLEAN_MSG] input: {error_msg[:300]!r}")
+        # Extract the SyntaxError: line which has the actual description
+        match = re.search(r'(SyntaxError:[^\n]+)', error_msg)
+        if match:
+            result = match.group(1).strip()
+            logger.info(f"[SYNTAX][CLEAN_MSG] extracted SyntaxError line: {result!r}")
+            return result[:200]
+        # Fallback: strip temp file path and return first meaningful line
+        lines = error_msg.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('(') and not line.startswith('at '):
+                # Remove temp file path prefix
+                line = re.sub(r'^[A-Za-z]:\\[^:]+\.js:\d+\s*', '', line)
+                line = re.sub(r'^/tmp/[^:]+:\d+\s*', '', line)
+                if line:
+                    logger.info(f"[SYNTAX][CLEAN_MSG] fallback result: {line[:200]!r}")
+                    return line[:200]
+        logger.warning(f"[SYNTAX][CLEAN_MSG] could not extract clean message")
+        return error_msg[:200]
     
     def _clean_error_message(self, error_msg: str) -> str:
         """Clean up node error message for display."""

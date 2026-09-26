@@ -346,45 +346,36 @@ def select_model(
     task_type: str = None,
     tier: ModelTier = None,
 ) -> str:
-    """
-    Select a Gemini model for a task type.
+    """Select a Gemini model for a task type."""
+    import logging
+    _log = logging.getLogger("forge.codegen.llm_router")
+    _log.info(f"[LLM_ROUTER] select_model called: task_type={task_type} tier={tier}")
     
-    This is for ADK agents that need a model string at creation time.
-    For runtime auto-routing, use ForgeRouter instead.
-    
-    Args:
-        task_type: Type of task
-        tier: Explicit tier
-        
-    Returns:
-        Model name string
-    """
     if tier:
-        return DEFAULT_CONFIG.tiers.get(tier.value, DEFAULT_CONFIG.default_model)
+        result = DEFAULT_CONFIG.tiers.get(tier.value, DEFAULT_CONFIG.default_model)
+        _log.info(f"[LLM_ROUTER] tier override: tier={tier} → model={result}")
+        return result
     
     task_to_tier = {
-        # Reasoning tier
         "design": ModelTier.REASONING,
         "architecture": ModelTier.REASONING,
         "plan_creation": ModelTier.REASONING,
-        
-        # Complex tier
         "implementation": ModelTier.COMPLEX,
         "diff_generation": ModelTier.COMPLEX,
         "refactoring": ModelTier.COMPLEX,
-        
-        # Medium tier
         "verification": ModelTier.MEDIUM,
         "code_generation": ModelTier.MEDIUM,
-        
-        # Simple tier
         "exploration": ModelTier.SIMPLE,
         "search": ModelTier.SIMPLE,
         "formatting": ModelTier.SIMPLE,
     }
+    _log.info(f"[LLM_ROUTER] task_to_tier lookup: task_type={task_type}")
     
     tier = task_to_tier.get(task_type, ModelTier.MEDIUM)
-    return DEFAULT_CONFIG.tiers.get(tier.value, DEFAULT_CONFIG.default_model)
+    _log.info(f"[LLM_ROUTER] resolved tier={tier}")
+    result = DEFAULT_CONFIG.tiers.get(tier.value, DEFAULT_CONFIG.default_model)
+    _log.info(f"[LLM_ROUTER] select_model → {result}")
+    return result
 
 
 def get_model_for_agent(agent_type: str) -> str:

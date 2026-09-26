@@ -83,20 +83,26 @@ export default function CodeGen() {
     es.onmessage = () => { refreshState(codegenId); };
     es.addEventListener("stage", () => { refreshState(codegenId); });
     es.addEventListener("done", () => { es.close(); refreshState(codegenId); });
-    // /stream returns 404 for codegen — SSE not available.
-    // On error: close and refresh. Because stage dependency drives re-runs,
-    // each stage change will open a new SSE, get 404, refresh again.
-    // This cascades naturally through all stages until awaiting_approval.
     es.onerror = () => {
       es.close();
-      // Small delay so server state is settled before we fetch
       setTimeout(() => { refreshState(codegenId); }, 500);
     };
 
     return () => { es.close(); };
   }, [state?.id, state?.stage]);
 
-  async function initCodeGen(pipelineId: string) {
+  // Polling fallback — 3s interval while pipeline is running.
+  // SSE cascade alone is unreliable (404 fires once per mount, not per stage).
+  // This guarantees the UI always reflects backend state.
+  useEffect(() => {
+    if (!state?.id) return;
+    const isTerminal = ["approved", "rejected", "failed", "awaiting_approval"].includes(state.stage);
+    if (isTerminal) return;
+
+    const codegenId = state.id;
+    const timer = setInterval(() => { refreshState(codegenId); }, 3000);
+    return () => clearInterval(timer);
+  }, [state?.id, state?.stage]);  async function initCodeGen(pipelineId: string) {
     setLoading(true);
     setError(null);
 
