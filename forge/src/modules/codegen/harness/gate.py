@@ -63,7 +63,7 @@ class GateConfig:
     
     # vallm integration
     use_vallm: bool = True  # Use vallm when available
-    vallm_syntax: bool = False  # Disable vallm tree-sitter — v0.1.94 rejects valid JS template literals (e.g. `${VAR}`) after diff apply; use Node --check instead
+    vallm_syntax: bool = True   # Run vallm tree-sitter (informational only — Node is authoritative)
     vallm_complexity: bool = True  # Use vallm for complexity (lizard)
     vallm_security: bool = True  # Use vallm security patterns (complement ours)
     complexity_threshold: int = 15  # Max cyclomatic complexity
@@ -154,15 +154,25 @@ class DeterministicGate:
         # TIER 1: Syntax & Imports (FAIL FAST)
         # =========================================
         
-        # Syntax check - prefer vallm (tree-sitter) if available
+        # Syntax check - run both vallm (tree-sitter) + Node (authoritative)
+        # vallm findings are informational only (warnings) — Node is ground truth for JS/TS
         if self.vallm_adapter and self.config.vallm_syntax:
             logger.info(f"[GATE]    [T1] Syntax check via vallm (tree-sitter)...")
-            syntax_result = self.vallm_adapter.check_syntax(service_id, diffs)
+            vallm_syntax = self.vallm_adapter.check_syntax(service_id, diffs)
+            # Demote vallm syntax errors to warnings — Node is authoritative for JS
+            for v in vallm_syntax.violations:
+                v.severity = ViolationSeverity.WARNING
+            all_violations.extend(vallm_syntax.violations)
             checks_run.append("syntax:vallm")
-        else:
-            logger.info(f"[GATE]    [T1] Syntax check via node --check (fallback)...")
-            syntax_result = self.syntax_checker.check(service_id, diffs)
-            checks_run.append("syntax:native")
+            if vallm_syntax.violations:
+                logger.warning(f"[GATE]    [T1] vallm syntax: {len(vallm_syntax.violations)} warnings (informational)")
+            else:
+                logger.info(f"[GATE]    [T1] vallm syntax: PASS")
+
+        # Always run Node check — this is what actually gates the pipeline
+        logger.info(f"[GATE]    [T1] Syntax check via node --check (authoritative)...")
+        syntax_result = self.syntax_checker.check(service_id, diffs)
+        checks_run.append("syntax:native")
         
         syntax_errors = [v for v in syntax_result.violations if v.severity == ViolationSeverity.ERROR]
         syntax_warns  = [v for v in syntax_result.violations if v.severity != ViolationSeverity.ERROR]
@@ -214,7 +224,7 @@ class DeterministicGate:
                 if vallm_sec_violations:
                     logger.warning(f"[GATE]    [T2] vallm security: {len(vallm_sec_violations)} findings")
                     for v in vallm_sec_violations:
-                        logger.warning(f"[GATE]         [{v.severity.value}] {v.file_path}:{v.line_number} — {v.name}: {v.description[:80]}")
+                        logger.warning(f"[GATE]         [{v.severity.value}] {v.file_path}:{v.line_number} — {v.description[:80]}")
                 else:
                     logger.info(f"[GATE]    [T2] vallm security: PASS")
                 all_violations.extend(vallm_sec_violations)
@@ -226,7 +236,7 @@ class DeterministicGate:
             if native_sec_violations:
                 logger.warning(f"[GATE]    [T2] native security: {len(native_sec_violations)} findings")
                 for v in native_sec_violations:
-                    logger.warning(f"[GATE]         [{v.severity.value}] {v.file_path}:{v.line_number} — {v.name}: {v.description[:80]}")
+                    logger.warning(f"[GATE]         [{v.severity.value}] {v.file_path}:{v.line_number} — {v.description[:80]}")
             else:
                 logger.info(f"[GATE]    [T2] native security: PASS")
             all_violations.extend(native_sec_violations)
@@ -294,7 +304,7 @@ class DeterministicGate:
             if constraint_violations:
                 logger.error(f"[GATE]    [T3] Negative constraint FAIL: {len(constraint_violations)} violations")
                 for v in constraint_violations:
-                    logger.error(f"[GATE]         {v.name}: {v.file_path}:{v.line_number} — {v.description[:80]}")
+                    logger.error(f"[GATE]         {v.file_path}:{v.line_number} — {v.description[:80]}")
             else:
                 logger.info(f"[GATE]    [T3] Negative constraints: PASS")
             all_violations.extend(constraint_violations)

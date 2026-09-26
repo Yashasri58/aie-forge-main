@@ -14,6 +14,10 @@ export default defineConfig({
       "/graph":    "http://localhost:8000",
       "/impact":   "http://localhost:8000",
       "/pipeline": "http://localhost:8000",
+      "/codegen":  "http://localhost:8000",
+      "/cache":    "http://localhost:8000",
+      "/reverse":  "http://localhost:8000",
+      "/chat":     "http://localhost:8000",
     },
   },
   build: {

@@ -236,19 +236,6 @@ class SyntaxChecker:
         logger.warning(f"[SYNTAX][CLEAN_MSG] could not extract clean message")
         return error_msg[:200]
     
-    def _clean_error_message(self, error_msg: str) -> str:
-        """Clean up node error message for display."""
-        lines = error_msg.strip().split('\n')
-        # Get first meaningful line
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('('):
-                # Remove temp file path
-                line = re.sub(r'[A-Za-z]:\\[^:]+:', '', line)
-                line = re.sub(r'/tmp/[^:]+:', '', line)
-                return line[:200]  # Limit length
-        return error_msg[:200]
-    
     def _check_brackets(self, service_id: str, diff: FileDiff) -> List[HarnessViolation]:
         """Check for mismatched brackets."""
         violations = []

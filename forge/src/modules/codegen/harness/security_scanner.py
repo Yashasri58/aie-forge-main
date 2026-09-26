@@ -276,7 +276,7 @@ class SecurityScanner:
                 logger.warning(f"[SECURITY]    {diff.file_path}: {len(errors)} errors, {len(warns)} warnings")
                 for v in file_violations:
                     lvl = logger.error if v.severity == ViolationSeverity.ERROR else logger.warning
-                    lvl(f"[SECURITY]      [{v.severity.value}] line {v.line_number} — {v.name}: {v.description[:80]}")
+                    lvl(f"[SECURITY]      [{v.severity.value}] line {v.line_number} — {v.description[:80]}")
             else:
                 logger.debug(f"[SECURITY]    {diff.file_path}: clean")
             violations.extend(file_violations)

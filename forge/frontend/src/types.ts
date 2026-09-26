@@ -279,13 +279,16 @@ export interface PipelineState {
 export type CodeGenStage =
   | "pending"
   | "designing"
+  | "distributing"
   | "coordinating"
   | "implementing"
   | "verifying"
+  | "fixing"
   | "awaiting_approval"
   | "approved"
   | "rejected"
-  | "failed";
+  | "failed"
+  | "design_complete";
 
 /** A contract defining a shared interface between tasks */
 export interface CodeGenContract {

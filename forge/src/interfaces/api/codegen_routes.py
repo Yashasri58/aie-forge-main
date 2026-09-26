@@ -5,8 +5,11 @@ Endpoints for the code generation pipeline.
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
+import asyncio
+import json
 
 
 # =============================================================================
@@ -131,6 +134,48 @@ async def start_codegen(request: StartRequest):
     asyncio.create_task(_run())
 
     return state.to_dict()
+
+
+@router.get("/{state_id}/stream")
+async def stream_codegen(state_id: str):
+    """SSE stream of codegen progress. Closes when terminal stage is reached."""
+    if not _codegen_orchestrator:
+        raise HTTPException(status_code=503, detail="Code generation not initialized")
+
+    TERMINAL = {"awaiting_approval", "approved", "rejected", "failed"}
+
+    async def event_generator():
+        sent_count = 0
+        last_stage = None
+
+        while True:
+            state = _lookup_state(state_id)
+
+            if not state:
+                yield f"event: error\ndata: {json.dumps({'error': 'State not found'})}\n\n"
+                return
+
+            entries = state.activity_log or []
+            for entry in entries[sent_count:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            sent_count = len(entries)
+
+            current_stage = state.stage.value if hasattr(state.stage, "value") else str(state.stage)
+            if current_stage != last_stage:
+                last_stage = current_stage
+                yield f"event: stage\ndata: {json.dumps({'stage': current_stage})}\n\n"
+
+            if current_stage in TERMINAL:
+                yield f"event: done\ndata: {json.dumps({'stage': current_stage, 'error': state.error})}\n\n"
+                return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{state_id}")
