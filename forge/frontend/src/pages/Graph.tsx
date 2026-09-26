@@ -125,7 +125,7 @@ export default function Graph() {
         </div>
 
         {/* Right Panel */}
-        <div className="w-80 flex flex-col gap-3">
+        <div className="w-80 flex flex-col gap-3 overflow-y-auto min-h-0">
 
           {/* Enrichment panel — shown when Dependencies button is active */}
           {showEnrichment && (

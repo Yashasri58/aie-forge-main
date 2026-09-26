@@ -225,7 +225,7 @@ export default function CodeGen() {
           </div>
 
           {/* Right: live log panel */}
-          <div className="w-80 flex flex-col gap-4">
+          <div className="w-80 flex flex-col gap-4 overflow-y-auto min-h-0">
             <Card className="flex flex-col overflow-hidden flex-1">
               <div className="flex items-center justify-between px-1 pb-2 border-b border-[var(--color-glass-border)]">
                 <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Activity</h3>
