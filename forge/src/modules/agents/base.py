@@ -212,8 +212,9 @@ class BaseADKAgent(ABC):
     
     def _create_agent(self) -> Agent:
         """Create the ADK agent."""
+        from modules.llm_registry import get_adk_model
         return Agent(
-            model=self.model,
+            model=get_adk_model(self.model),
             name=self.name,
             instruction=self.instruction,
             tools=self._get_tools(),

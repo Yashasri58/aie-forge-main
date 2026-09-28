@@ -234,8 +234,9 @@ def query_cypher(cypher_query: str) -> dict:
 
 def _create_agent() -> Agent:
     """Create the ADK agent with all tools."""
+    from modules.llm_registry import get_adk_model
     return Agent(
-        model="gemini-2.5-flash",
+        model=get_adk_model("gemini-2.5-flash"),
         name="forge_impact_agent",
         instruction=SYSTEM_INSTRUCTION,
         description="Analyzes code dependencies and impact of changes using graph queries",

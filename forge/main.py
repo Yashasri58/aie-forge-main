@@ -55,6 +55,29 @@ _orchestrator = None
 _codegen_orchestrator = None
 _re_orchestrator = None
 
+# Graph lock — held during hot-swap (acquired in lifespan)
+import asyncio as _asyncio
+_graph_lock: _asyncio.Lock = None
+
+
+def set_graph_globals(store, tools, agent, orch, codegen_orch) -> None:
+    """Atomically update all Graph_Globals and re-wire routers. Called by GraphRebuilder."""
+    global _store, _tools, _agent, _orchestrator, _codegen_orchestrator
+    _store               = store
+    _tools               = tools
+    _agent               = agent
+    _orchestrator        = orch
+    _codegen_orchestrator = codegen_orch
+    set_health_deps(_store, _agent, _tools)
+    set_impact_deps(_agent, _tools)
+    set_graph_store(_store)
+    if _orchestrator:
+        set_pipeline_orchestrator(_orchestrator)
+    if _codegen_orchestrator:
+        set_codegen_orchestrator(_codegen_orchestrator)
+        if _orchestrator:
+            set_codegen_pipeline_orchestrator(_orchestrator)
+
 
 # =============================================================================
 # LIFESPAN
@@ -63,7 +86,9 @@ _re_orchestrator = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and cleanup resources."""
-    global _store, _agent, _tools, _orchestrator, _codegen_orchestrator, _re_orchestrator
+    global _store, _agent, _tools, _orchestrator, _codegen_orchestrator, _re_orchestrator, _graph_lock
+    import asyncio
+    _graph_lock = asyncio.Lock()
     
     # Find services directory
     services_path = Path(__file__).parent / ".." / "services"
@@ -164,8 +189,10 @@ async def lifespan(app: FastAPI):
             
             print(f"CodeGraph ready: {len(_tools.services)} services, {len(_tools.all_symbols)} symbols")
             
-            # Initialize agent and pipeline if Google API key available
-            if os.getenv("GOOGLE_API_KEY"):
+            # Initialize agent and pipeline if LLM is available
+            # Either direct Gemini key OR LiteLLM proxy endpoint will do
+            _llm_available = bool(os.getenv("GOOGLE_API_KEY")) or bool(os.getenv("LITELLM_ENDPOINT"))
+            if _llm_available:
                 try:
                     from modules.agents.impact import ImpactAgent
                     from modules.agents import PipelineOrchestrator
@@ -178,6 +205,19 @@ async def lifespan(app: FastAPI):
                     if services_path.exists():
                         from modules.codegen import CodeGenOrchestrator
                         _codegen_orchestrator = CodeGenOrchestrator(_store, str(services_path))
+                        try:
+                            from modules.codegen.graph_rebuilder import GraphRebuilder
+                            _graph_rebuilder = GraphRebuilder(
+                                services_root=services_path,
+                                kuzu_db_path=kuzu_db_path,
+                                extraction_path=extraction_path,
+                                set_globals_fn=set_graph_globals,
+                                graph_lock=_graph_lock,
+                            )
+                            _codegen_orchestrator._graph_rebuilder = _graph_rebuilder
+                            print(f"GraphRebuilder wired into CodeGenOrchestrator")
+                        except Exception as gr_err:
+                            print(f"WARNING: GraphRebuilder init failed (non-fatal): {gr_err}")
                         print(f"Code Generation ready: {services_path}")
                 except Exception as agent_err:
                     print(f"WARNING: Could not initialize agents: {agent_err}")

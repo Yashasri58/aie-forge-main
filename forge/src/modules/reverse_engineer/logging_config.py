@@ -70,6 +70,10 @@ class REFormatter(logging.Formatter):
 
 def setup_logging(level: str = "DEBUG") -> None:
     """Configure all reverse-engineer loggers."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(REFormatter())
 

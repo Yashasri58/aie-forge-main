@@ -325,3 +325,79 @@ async def delete_state(state_id: str):
     
     _codegen_orchestrator.delete_state(state_id)
     return {"status": "deleted"}
+
+
+# =============================================================================
+# VERSION HISTORY ENDPOINTS (apply-diffs-sync-graph feature)
+# =============================================================================
+
+import os as _os
+
+
+def _sync_enabled() -> bool:
+    return _os.getenv("SYNC_GRAPH_ON_APPROVE", "false").lower() in ("true", "1", "yes")
+
+
+def _get_services_root():
+    from pathlib import Path as _Path
+    if not _codegen_orchestrator:
+        return None
+    return _Path(_codegen_orchestrator._services_path).parent
+
+
+@router.get("/versions")
+async def list_versions():
+    if not _sync_enabled():
+        raise HTTPException(status_code=503, detail="Version history unavailable — set SYNC_GRAPH_ON_APPROVE=true to enable")
+    services_root = _get_services_root()
+    if not services_root:
+        raise HTTPException(503, "Code generation not initialized")
+    from modules.codegen.version_manager import VersionManager
+    vm = VersionManager(services_root)
+    versions = vm.list_versions()
+    return [{"commit_hash": v.commit_hash, "short_hash": v.short_hash, "message": v.message,
+             "timestamp": v.timestamp, "state_id": v.state_id, "changed_files": v.changed_files}
+            for v in versions]
+
+
+@router.get("/versions/{commit_hash}/download")
+async def download_version(commit_hash: str):
+    if not _sync_enabled():
+        raise HTTPException(status_code=503, detail="Version download unavailable — set SYNC_GRAPH_ON_APPROVE=true to enable")
+    services_root = _get_services_root()
+    if not services_root:
+        raise HTTPException(503, "Code generation not initialized")
+    from modules.codegen.version_manager import VersionManager
+    from fastapi.responses import Response as _Response
+    vm = VersionManager(services_root)
+    try:
+        zip_bytes = vm.download_version(commit_hash)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return _Response(content=zip_bytes, media_type="application/zip",
+                     headers={"Content-Disposition": f'attachment; filename="forge-{commit_hash[:8]}.zip"'})
+
+
+@router.post("/{state_id}/revert")
+async def revert_state(state_id: str):
+    if not _sync_enabled():
+        raise HTTPException(status_code=503, detail="Revert unavailable — set SYNC_GRAPH_ON_APPROVE=true to enable")
+    state = _lookup_state(state_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="State not found")
+    commit_hash = getattr(state, "git_commit_hash", None)
+    if not commit_hash:
+        raise HTTPException(status_code=404, detail="No git commit associated with this state")
+    services_root = _get_services_root()
+    from modules.codegen.version_manager import VersionManager
+    vm = VersionManager(services_root)
+    result = vm.revert_version(commit_hash)
+    if not result.success:
+        raise HTTPException(status_code=409, detail={"error": result.error, "conflict_details": result.conflict_details})
+    rebuilder = getattr(_codegen_orchestrator, "_graph_rebuilder", None)
+    if rebuilder:
+        import asyncio
+        asyncio.create_task(rebuilder.rebuild())
+    return {"status": "reverted", "revert_commit": result.revert_commit_hash, "original_commit": commit_hash}

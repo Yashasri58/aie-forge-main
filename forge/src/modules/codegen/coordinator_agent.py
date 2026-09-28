@@ -651,8 +651,9 @@ class CoordinatorAgent:
     
     def _create_agent(self) -> Agent:
         """Create the ADK agent with tools."""
+        from modules.llm_registry import get_adk_model
         return Agent(
-            model=self._model,
+            model=get_adk_model(self._model),
             name="forge_coordinator_agent",
             instruction=COORDINATOR_AGENT_SYSTEM_PROMPT,
             description="Validates plans and prepares for implementation",

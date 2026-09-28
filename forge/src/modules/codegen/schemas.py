@@ -658,6 +658,11 @@ class CodeGenState:
     
     # Error
     error: Optional[str] = None
+
+    # ── Post-approval sync fields (apply-diffs-sync-graph) ─────────────────
+    sync_status: Optional[str] = None      # applying|committing|rebuilding|complete|failed
+    sync_error: Optional[str] = None
+    git_commit_hash: Optional[str] = None
     
     @classmethod
     def create(cls, impact_report: dict) -> "CodeGenState":
@@ -696,4 +701,7 @@ class CodeGenState:
             "failed_tasks": self.failed_tasks,
             "activity_log": self.activity_log,
             "error": self.error,
+            "sync_status": self.sync_status,
+            "sync_error": self.sync_error,
+            "git_commit_hash": self.git_commit_hash,
         }

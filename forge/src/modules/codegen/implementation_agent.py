@@ -5,9 +5,9 @@ The "Hands" of code generation. Receives a task file and produces a diff.
 Simple, focused, follows the plan exactly.
 
 Uses Gemini model selection based on task complexity:
-- Simple changes → gemini-2.5-flash-lite
-- Standard changes → gemini-2.5-flash
-- Complex changes → gemini-3.1-pro-preview-customtools
+- Simple changes â†’ gemini-2.5-flash-lite
+- Standard changes â†’ gemini-2.5-flash
+- Complex changes â†’ gemini-3.1-pro-preview-customtools
 """
 
 import json
@@ -59,7 +59,7 @@ def read_current_file(file_path: str) -> dict:
         # Security: stay within services directory
         full_path.resolve().relative_to(_services_path.resolve())
         if not full_path.exists():
-            return {"error": f"File not found: {file_path}", "tip": "This may be a CREATE task — file does not exist yet"}
+            return {"error": f"File not found: {file_path}", "tip": "This may be a CREATE task â€” file does not exist yet"}
         content = full_path.read_text(encoding="utf-8", errors="replace")
         return {
             "path": file_path,
@@ -82,9 +82,9 @@ class ImplementationAgent:
     Implementation Agent - produces diffs from task files.
     
     Dynamically selects Gemini model based on task complexity:
-    - Simple: single change, no contracts → flash-lite
-    - Medium: standard changes → flash  
-    - Complex: many changes, contracts → pro
+    - Simple: single change, no contracts â†’ flash-lite
+    - Medium: standard changes â†’ flash  
+    - Complex: many changes, contracts â†’ pro
     
     Usage:
         agent = ImplementationAgent()
@@ -114,23 +114,24 @@ class ImplementationAgent:
         
         # Simple tasks
         if num_changes == 1 and num_contracts == 0 and content_size < 2000:
-            logger.info(f"[COMPLEXITY] → SIMPLE")
+            logger.info(f"[COMPLEXITY] â†’ SIMPLE")
             return TaskComplexity.SIMPLE
         
         # Complex tasks
         if num_changes > 5 or num_contracts > 3 or content_size > 10000:
-            logger.info(f"[COMPLEXITY] → COMPLEX")
+            logger.info(f"[COMPLEXITY] â†’ COMPLEX")
             return TaskComplexity.COMPLEX
         
         # Default to medium
-        logger.info(f"[COMPLEXITY] → MEDIUM (default)")
+        logger.info(f"[COMPLEXITY] â†’ MEDIUM (default)")
         return TaskComplexity.MEDIUM
     
     def _create_agent(self, model: str) -> Agent:
         """Create ADK agent with specified model."""
         logger.info(f"[CREATE_AGENT] creating Agent with model={model}")
+        from modules.llm_registry import get_adk_model
         agent = Agent(
-            model=model,
+            model=get_adk_model(model),
             name="forge_implementation_agent",
             instruction=IMPLEMENTATION_AGENT_SYSTEM_PROMPT,
             description="Implements code changes from task files",
@@ -145,7 +146,7 @@ class ImplementationAgent:
         logger.info(f"[GET_SESSION] cache_key={cache_key} already_cached={cache_key in self._sessions}")
         
         if cache_key not in self._sessions:
-            logger.info(f"[GET_SESSION] cache miss — creating new agent+session for {cache_key}")
+            logger.info(f"[GET_SESSION] cache miss â€” creating new agent+session for {cache_key}")
             agent = self._create_agent(model)
             logger.info(f"[GET_SESSION] calling session_service.create_session()")
             session = await self._session_service.create_session(
@@ -171,7 +172,7 @@ class ImplementationAgent:
         """
         Implement a task and return a diff.
         """
-        logger.info(f"[IMPL] ▶️  implement() START: task_id={task_file.task_id} file={task_file.file} action={task_file.action} pipeline_id={pipeline_id}")
+        logger.info(f"[IMPL] â–¶ï¸  implement() START: task_id={task_file.task_id} file={task_file.file} action={task_file.action} pipeline_id={pipeline_id}")
         start_time = time.time()
         logger.info(f"[IMPL] start_time={start_time}")
         
@@ -184,11 +185,11 @@ class ImplementationAgent:
         logger.info(f"[IMPL] model selected={model}")
         
         log_task_start(logger, task_file.task_id, task_file.file, str(task_file.action))
-        logger.info(f"   └─ Complexity: {complexity.value}, Model: {model}")
+        logger.info(f"   â””â”€ Complexity: {complexity.value}, Model: {model}")
         
         # Get session with appropriate model
         logger.info(f"[IMPL] calling _get_session(task_id={task_file.task_id}, model={model})")
-        logger.debug(f"   └─ Creating session for {task_file.task_id}")
+        logger.debug(f"   â””â”€ Creating session for {task_file.task_id}")
         session, runner, _ = await self._get_session(task_file.task_id, model)
         logger.info(f"[IMPL] session obtained: session.id={session.id}")
         
@@ -196,7 +197,7 @@ class ImplementationAgent:
         logger.info(f"[IMPL] calling _build_prompt()")
         prompt = self._build_prompt(task_file)
         logger.info(f"[IMPL] prompt built: {len(prompt)} chars")
-        logger.debug(f"   └─ Prompt length: {len(prompt)} chars")
+        logger.debug(f"   â””â”€ Prompt length: {len(prompt)} chars")
         log_llm_call(logger, model, prompt[:100])
         
         # Query the agent
@@ -215,7 +216,7 @@ class ImplementationAgent:
         logger.info(f"[IMPL] token counters initialized: in=0 out=0 think=0")
         try:
             logger.info(f"[IMPL] entering runner.run_async() loop")
-            logger.info(f"   └─ Calling LLM ({model}), prompt={len(prompt)} chars...")
+            logger.info(f"   â””â”€ Calling LLM ({model}), prompt={len(prompt)} chars...")
             event_count = 0
             async for event in runner.run_async(
                 user_id="developer",
@@ -235,13 +236,13 @@ class ImplementationAgent:
                     for tc in event.tool_calls:
                         tool_call_count += 1
                         logger.info(f"[IMPL] TOOL CALL #{tool_call_count}: name={tc.name} args={json.dumps(tc.args or {}, default=str)[:200]}")
-                        logger.info(f"   └─ TOOL #{tool_call_count}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
+                        logger.info(f"   â””â”€ TOOL #{tool_call_count}: {tc.name}({json.dumps(tc.args or {}, default=str)[:120]})")
                 if hasattr(event, 'tool_results') and event.tool_results:
                     for tr in event.tool_results:
                         name = tr.name if hasattr(tr, 'name') else 'unknown'
                         result_preview = str(tr.result)[:200] if hasattr(tr, 'result') else str(tr)[:200]
                         logger.info(f"[IMPL] TOOL RESULT: name={name} result_preview={result_preview}")
-                        logger.debug(f"   └─ TOOL RESULT: {name} → {result_preview}")
+                        logger.debug(f"   â””â”€ TOOL RESULT: {name} â†’ {result_preview}")
                 if event.is_final_response() and event.content and event.content.parts:
                     logger.info(f"[IMPL] final response event: parts={len(event.content.parts)}")
                     for pi, part in enumerate(event.content.parts):
@@ -273,7 +274,7 @@ class ImplementationAgent:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[IMPL] duration={duration_ms}ms")
             log_task_complete(logger, task_file.task_id, "success", duration_ms)
-            logger.info(f"   └─ LLM done: {tool_call_count} tool calls, response={len(response_text)} chars, diff={len(diff)} chars")
+            logger.info(f"   â””â”€ LLM done: {tool_call_count} tool calls, response={len(response_text)} chars, diff={len(diff)} chars")
             
             logger.info(f"[IMPL] building AgentOutput: task_id={task_file.task_id} file={task_file.file} status=success")
             output = AgentOutput(
@@ -283,15 +284,15 @@ class ImplementationAgent:
                 status="success",
                 metadata={"model": model, "complexity": complexity.value}
             )
-            logger.info(f"[IMPL] ✅ implement() returning SUCCESS: diff_len={len(diff)}")
+            logger.info(f"[IMPL] âœ… implement() returning SUCCESS: diff_len={len(diff)}")
             return output
             
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"[IMPL] ❌ EXCEPTION in implement(): {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"[IMPL] âŒ EXCEPTION in implement(): {type(e).__name__}: {e}", exc_info=True)
             logger.info(f"[IMPL] duration at exception: {duration_ms}ms")
             log_task_complete(logger, task_file.task_id, f"error: {e}", duration_ms)
-            logger.error(f"   └─ Exception: {e}", exc_info=True)
+            logger.error(f"   â””â”€ Exception: {e}", exc_info=True)
             logger.info(f"[IMPL] building error AgentOutput")
             output = AgentOutput(
                 task_id=task_file.task_id,
@@ -300,7 +301,7 @@ class ImplementationAgent:
                 status="error",
                 error_message=str(e),
             )
-            logger.info(f"[IMPL] ❌ implement() returning ERROR: {str(e)}")
+            logger.info(f"[IMPL] âŒ implement() returning ERROR: {str(e)}")
             return output
     
     def _build_prompt(self, task_file: TaskFile) -> str:
@@ -416,35 +417,35 @@ For CREATE:
                 diff = match.group(1).strip()
                 logger.info(f"[EXTRACT_DIFF] pattern[{pi}] matched: diff_len={len(diff)} starts_with='{diff[:30]}'")
                 if diff.startswith('---') or diff.startswith('diff'):
-                    logger.info(f"[EXTRACT_DIFF] valid diff header found via pattern[{pi}] — returning")
+                    logger.info(f"[EXTRACT_DIFF] valid diff header found via pattern[{pi}] â€” returning")
                     return diff
                 else:
-                    logger.info(f"[EXTRACT_DIFF] pattern[{pi}] matched but not a diff header — continuing")
+                    logger.info(f"[EXTRACT_DIFF] pattern[{pi}] matched but not a diff header â€” continuing")
             else:
                 logger.info(f"[EXTRACT_DIFF] pattern[{pi}] no match")
         
         # If response looks like a diff already
         logger.info(f"[EXTRACT_DIFF] checking if response itself is a diff")
         if response.strip().startswith('---') or response.strip().startswith('diff'):
-            logger.info(f"[EXTRACT_DIFF] response IS a raw diff — returning directly, len={len(response.strip())}")
+            logger.info(f"[EXTRACT_DIFF] response IS a raw diff â€” returning directly, len={len(response.strip())}")
             return response.strip()
         logger.info(f"[EXTRACT_DIFF] response is NOT a raw diff")
         
         # For CREATE actions, generate diff from content
         logger.info(f"[EXTRACT_DIFF] action={task_file.action} checking CREATE fallback")
         if task_file.action == TaskAction.CREATE:
-            logger.info(f"[EXTRACT_DIFF] CREATE action — trying code block extraction")
+            logger.info(f"[EXTRACT_DIFF] CREATE action â€” trying code block extraction")
             # Try to extract code block
             code_match = re.search(r'```\w*\s*([\s\S]*?)\s*```', response)
             if code_match:
                 content = code_match.group(1)
-                logger.info(f"[EXTRACT_DIFF] code block found for CREATE: {len(content)} chars — converting to diff")
+                logger.info(f"[EXTRACT_DIFF] code block found for CREATE: {len(content)} chars â€” converting to diff")
                 return self._content_to_diff(task_file.file, content)
             else:
                 logger.info(f"[EXTRACT_DIFF] no code block found for CREATE action")
         
         # Return empty diff if nothing found
-        logger.warning(f"[EXTRACT_DIFF] ⚠️ could not extract diff — returning EMPTY for task={task_file.task_id}")
+        logger.warning(f"[EXTRACT_DIFF] âš ï¸ could not extract diff â€” returning EMPTY for task={task_file.task_id}")
         return ""
     
     def _content_to_diff(self, file_path: str, content: str) -> str:
@@ -466,7 +467,7 @@ For CREATE:
         errors: list[dict | str]
     ) -> AgentOutput:
         """Fix a diff based on verification errors."""
-        logger.info(f"[FIX_DIFF] ▶️  fix_diff() START: task_id={task_file.task_id} file={task_file.file} previous_diff_len={len(previous_diff)} errors={len(errors)}")
+        logger.info(f"[FIX_DIFF] â–¶ï¸  fix_diff() START: task_id={task_file.task_id} file={task_file.file} previous_diff_len={len(previous_diff)} errors={len(errors)}")
         for i, e in enumerate(errors):
             logger.info(f"[FIX_DIFF]   error[{i}]: {e}")
 
@@ -568,14 +569,14 @@ Return ONLY the corrected unified diff, no explanation.
                 diff=diff,
                 status="success",
             )
-            logger.info(f"[FIX_DIFF] ✅ fix_diff() returning SUCCESS diff_len={len(diff)}")
+            logger.info(f"[FIX_DIFF] âœ… fix_diff() returning SUCCESS diff_len={len(diff)}")
             return output
             
         except Exception as e:
-            logger.error(f"[FIX_DIFF] ❌ EXCEPTION: {type(e).__name__}: {e}", exc_info=True)
-            logger.error(f"   └─ fix_diff FAILED for {task_file.task_id}: {e}", exc_info=True)
+            logger.error(f"[FIX_DIFF] âŒ EXCEPTION: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"   â””â”€ fix_diff FAILED for {task_file.task_id}: {e}", exc_info=True)
             logger.info(f"[FIX_DIFF] returning original previous_diff as fallback, len={len(previous_diff)}")
-            # Return as error status — orchestrator's stale-error detection will
+            # Return as error status â€” orchestrator's stale-error detection will
             # catch that this issue repeats and stop retrying
             output = AgentOutput(
                 task_id=task_file.task_id,
@@ -584,5 +585,5 @@ Return ONLY the corrected unified diff, no explanation.
                 status="error",
                 error_message=f"Fix failed: {e}",
             )
-            logger.info(f"[FIX_DIFF] ❌ fix_diff() returning ERROR: {str(e)}")
+            logger.info(f"[FIX_DIFF] âŒ fix_diff() returning ERROR: {str(e)}")
             return output

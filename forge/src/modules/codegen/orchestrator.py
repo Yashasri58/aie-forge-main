@@ -18,6 +18,7 @@ Usage:
 """
 
 import asyncio
+import os
 import time
 import uuid
 from typing import Optional
@@ -50,6 +51,11 @@ try:
     _CACHE_AVAILABLE = True
 except ImportError:
     _CACHE_AVAILABLE = False
+
+
+def _sync_enabled() -> bool:
+    """Return True if SYNC_GRAPH_ON_APPROVE=true in the environment."""
+    return os.getenv("SYNC_GRAPH_ON_APPROVE", "false").lower() in ("true", "1", "yes")
 
 
 # Maximum concurrent implementation agents
@@ -108,6 +114,9 @@ class CodeGenOrchestrator:
         
         # State storage
         self._states: dict[str, CodeGenState] = {}
+
+        # Graph rebuilder — injected by main.py after startup
+        self._graph_rebuilder = None
         logger.info(f"[ORCH_INIT] _states dict initialized empty")
         logger.info(f"[ORCH_INIT] ✅ CodeGenOrchestrator ready")
     
@@ -649,9 +658,88 @@ class CodeGenOrchestrator:
             except Exception as _ce:
                 logger.warning(f"[CACHE] Save failed (non-fatal): {_ce}")
         
+        # ── POST-APPROVAL SYNC: apply diffs + git commit + rebuild graph ─────
+        if _sync_enabled():
+            asyncio.create_task(self._post_approval_sync(state))
+
         return state
-    
-    async def reject(self, state_id: str, reason: str = "") -> CodeGenState:
+
+    async def _post_approval_sync(self, state: CodeGenState) -> None:
+        """
+        Background task: apply diffs to disk, git commit, rebuild graph.
+        Runs after approve() returns. Never raises — all errors logged.
+        """
+        from pathlib import Path as _Path
+
+        # services/ is a sibling of the forge/ directory
+        services_root = _Path(self._services_path).parent
+
+        state.sync_status = "applying"
+        n_diffs = len([d for d in state.diffs if getattr(d, "status", "") == "success"])
+        state.log(f"Applying diffs to disk ({n_diffs} files)...")
+
+        # 1. Apply diffs
+        try:
+            from modules.codegen.diff_applier import DiffApplier
+            applier = DiffApplier(services_root)
+            apply_result = applier.apply(state.diffs)
+        except Exception as e:
+            state.sync_error = f"Diff apply crashed: {e}"
+            state.sync_status = "failed"
+            state.log(f"Diff apply failed: {e}", "error")
+            return
+
+        if not apply_result.success:
+            reason = str(apply_result.failure_reasons)
+            state.sync_error = f"Diff apply failed: {reason}"
+            state.sync_status = "failed"
+            state.log(f"Diff apply failed: {reason}", "error")
+            return
+
+        state.log(f"Diffs applied successfully ({len(apply_result.files_written)} files)")
+
+        # 2. Git commit
+        state.sync_status = "committing"
+        state.log("Creating git commit...")
+        try:
+            from modules.codegen.version_manager import VersionManager
+            vm = VersionManager(services_root)
+            if not vm.is_git_repo():
+                state.log("services/ is not a git repo — skipping commit", "warning")
+            else:
+                commit_result = vm.commit(apply_result.files_written, state)
+                if commit_result.success:
+                    state.git_commit_hash = commit_result.commit_hash
+                    state.log(f"Git commit created: {commit_result.commit_hash[:8]}")
+                else:
+                    state.log(f"Git commit failed: {commit_result.error}", "error")
+        except Exception as e:
+            state.log(f"Git commit failed: {e}", "error")
+
+        # 3. Rebuild graph
+        state.sync_status = "rebuilding"
+        state.log("Rebuilding code graph (incremental)...")
+        rebuilder = getattr(self, "_graph_rebuilder", None)
+        if rebuilder is None:
+            state.log("GraphRebuilder not wired — skipping graph rebuild", "warning")
+            state.sync_status = "complete"
+            return
+
+        try:
+            rebuild_result = await rebuilder.rebuild(state)
+            if rebuild_result.success:
+                state.log(f"Graph rebuild complete — {rebuild_result.symbol_count} symbols loaded")
+                state.sync_status = "complete"
+            else:
+                state.log(f"Graph rebuild failed: {rebuild_result.error}", "error")
+                state.sync_error = rebuild_result.error
+                state.sync_status = "failed"
+        except Exception as e:
+            state.log(f"Graph rebuild failed: {e}", "error")
+            state.sync_error = str(e)
+            state.sync_status = "failed"
+
+    async def reject(self, state_id: str, reason: str = "") -> CodeGenState:self, state_id: str, reason: str = "") -> CodeGenState:
         """
         Reject the generated code changes.
         
