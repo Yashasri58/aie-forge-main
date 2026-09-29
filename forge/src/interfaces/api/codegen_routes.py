@@ -136,6 +136,59 @@ async def start_codegen(request: StartRequest):
     return state.to_dict()
 
 
+# ─── VERSION ROUTES must be registered BEFORE /{state_id} to avoid being ─────
+# swallowed by the parameterised route.                                          ─
+import os as _os
+
+
+def _sync_enabled_check() -> bool:
+    return _os.getenv("SYNC_GRAPH_ON_APPROVE", "false").lower() in ("true", "1", "yes")
+
+
+def _services_root_path():
+    from pathlib import Path as _Path
+    if not _codegen_orchestrator:
+        return None
+    return _Path(_codegen_orchestrator._services_path)
+
+
+@router.get("/versions")
+async def list_versions_early():
+    """List all AI-generated commits (must be before /{state_id} route)."""
+    if not _sync_enabled_check():
+        raise HTTPException(status_code=503, detail="Version history unavailable — set SYNC_GRAPH_ON_APPROVE=true to enable")
+    services_root = _services_root_path()
+    if not services_root:
+        raise HTTPException(503, "Code generation not initialized")
+    from modules.codegen.version_manager import VersionManager
+    vm = VersionManager(services_root)
+    versions = vm.list_versions()
+    return [{"commit_hash": v.commit_hash, "short_hash": v.short_hash, "message": v.message,
+             "timestamp": v.timestamp, "state_id": v.state_id, "changed_files": v.changed_files}
+            for v in versions]
+
+
+@router.get("/versions/{commit_hash}/download")
+async def download_version_early(commit_hash: str):
+    """Download services/ as zip at a specific commit (must be before /{state_id} route)."""
+    if not _sync_enabled_check():
+        raise HTTPException(status_code=503, detail="Version download unavailable — set SYNC_GRAPH_ON_APPROVE=true to enable")
+    services_root = _services_root_path()
+    if not services_root:
+        raise HTTPException(503, "Code generation not initialized")
+    from modules.codegen.version_manager import VersionManager
+    from fastapi.responses import Response as _Response
+    vm = VersionManager(services_root)
+    try:
+        zip_bytes = vm.download_version(commit_hash)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return _Response(content=zip_bytes, media_type="application/zip",
+                     headers={"Content-Disposition": f'attachment; filename="forge-{commit_hash[:8]}.zip"'})
+
+
 @router.get("/{state_id}/stream")
 async def stream_codegen(state_id: str):
     """SSE stream of codegen progress. Closes when terminal stage is reached."""
@@ -342,7 +395,8 @@ def _get_services_root():
     from pathlib import Path as _Path
     if not _codegen_orchestrator:
         return None
-    return _Path(_codegen_orchestrator._services_path).parent
+    # _services_path IS the services directory (no .parent needed)
+    return _Path(_codegen_orchestrator._services_path)
 
 
 @router.get("/versions")

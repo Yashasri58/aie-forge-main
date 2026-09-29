@@ -68,12 +68,57 @@ export default function DiffApproval() {
     }
   }
 
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   async function handleApprove() {
     if (!codegenId) return;
 
     setApproving(true);
+    setSyncStatus(null);
+    setSyncMessage(null);
     try {
       await approveCodeGen(codegenId, true);
+
+      // Poll sync_status until complete or failed (max 60s)
+      setSyncStatus("applying");
+      setSyncMessage("Applying changes to codebase...");
+      const start = Date.now();
+      while (Date.now() - start < 60000) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const updated = await getCodeGenStatus(codegenId);
+          const ss = (updated as any).sync_status;
+          const se = (updated as any).sync_error;
+          const gc = (updated as any).git_commit_hash;
+
+          if (!ss || ss === "applying") {
+            setSyncMessage("Applying changes to codebase...");
+          } else if (ss === "committing") {
+            setSyncMessage("Creating git commit...");
+          } else if (ss === "rebuilding") {
+            setSyncMessage("Rebuilding code graph...");
+          } else if (ss === "complete") {
+            const shortHash = gc ? gc.slice(0, 8) : null;
+            setSyncStatus("complete");
+            setSyncMessage(shortHash
+              ? `Done! Files updated, committed (${shortHash}), graph rebuilt.`
+              : "Done! Files updated and graph rebuilt.");
+            await new Promise(r => setTimeout(r, 2500));
+            navigate("/");
+            return;
+          } else if (ss === "failed") {
+            setSyncStatus("failed");
+            setSyncMessage(`Sync failed: ${se || "unknown error"}`);
+            await new Promise(r => setTimeout(r, 3000));
+            navigate("/");
+            return;
+          }
+        } catch (_) {
+          // polling error — ignore, keep trying
+        }
+      }
+      // Timed out — navigate anyway
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Failed to approve");
@@ -403,6 +448,32 @@ export default function DiffApproval() {
                 >
                   Cancel
                 </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Sync Status */}
+          {syncMessage && (
+            <Card className={`border ${
+              syncStatus === "complete" ? "border-[var(--color-success)]" :
+              syncStatus === "failed" ? "border-[var(--color-error)]" :
+              "border-[var(--color-accent)]"
+            }`}>
+              <div className="flex items-center gap-2 text-sm">
+                {syncStatus === "complete" ? (
+                  <CheckCircle2 size={16} className="text-[var(--color-success)] flex-shrink-0" />
+                ) : syncStatus === "failed" ? (
+                  <XCircle size={16} className="text-[var(--color-error)] flex-shrink-0" />
+                ) : (
+                  <Loader2 size={16} className="animate-spin text-[var(--color-accent)] flex-shrink-0" />
+                )}
+                <span className={
+                  syncStatus === "complete" ? "text-[var(--color-success)]" :
+                  syncStatus === "failed" ? "text-[var(--color-error)]" :
+                  "text-[var(--color-text-secondary)]"
+                }>
+                  {syncMessage}
+                </span>
               </div>
             </Card>
           )}

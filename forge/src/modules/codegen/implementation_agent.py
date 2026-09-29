@@ -389,6 +389,8 @@ For MODIFY:
 
 For CREATE:
 ```diff
+diff --git a/{file} b/{file}
+new file mode 100644
 --- /dev/null
 +++ b/{file}
 @@ -0,0 +1,N @@
@@ -452,6 +454,8 @@ For CREATE:
         """Convert file content to a unified diff (for CREATE actions)."""
         lines = content.splitlines()
         diff_lines = [
+            f"diff --git a/{file_path} b/{file_path}",
+            f"new file mode 100644",
             f"--- /dev/null",
             f"+++ b/{file_path}",
             f"@@ -0,0 +1,{len(lines)} @@",

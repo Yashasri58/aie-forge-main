@@ -523,3 +523,39 @@ export async function renameCacheEntry(id: string, label: string): Promise<void>
     body: JSON.stringify({ label }),
   });
 }
+
+// ─── VERSION HISTORY (apply-diffs-sync-graph) ───────────────────────────────
+
+export interface VersionEntry {
+  commit_hash: string;
+  short_hash: string;
+  message: string;
+  timestamp: string;
+  state_id: string;
+  changed_files: string[];
+}
+
+/** List all AI-generated commits in services/. */
+export async function listVersions(): Promise<VersionEntry[]> {
+  const res = await fetch("/codegen/versions");
+  if (!res.ok) return [];
+  return parseJson<VersionEntry[]>(res);
+}
+
+/** Download services/ as a zip at a specific commit. Triggers browser download. */
+export function downloadVersion(commitHash: string, shortHash: string): void {
+  const a = document.createElement("a");
+  a.href = `/codegen/versions/${encodeURIComponent(commitHash)}/download`;
+  a.download = `forge-${shortHash}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/** Revert the AI commit associated with a codegen state. */
+export async function revertVersion(stateId: string): Promise<{ status: string; revert_commit: string }> {
+  const res = await fetch(`/codegen/${encodeURIComponent(stateId)}/revert`, {
+    method: "POST",
+  });
+  return parseJson(res);
+}

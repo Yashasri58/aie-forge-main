@@ -671,8 +671,8 @@ class CodeGenOrchestrator:
         """
         from pathlib import Path as _Path
 
-        # services/ is a sibling of the forge/ directory
-        services_root = _Path(self._services_path).parent
+        # _services_path is already the services/ directory
+        services_root = _Path(self._services_path)
 
         state.sync_status = "applying"
         n_diffs = len([d for d in state.diffs if getattr(d, "status", "") == "success"])
@@ -739,7 +739,7 @@ class CodeGenOrchestrator:
             state.sync_error = str(e)
             state.sync_status = "failed"
 
-    async def reject(self, state_id: str, reason: str = "") -> CodeGenState:self, state_id: str, reason: str = "") -> CodeGenState:
+    async def reject(self, state_id: str, reason: str = "") -> CodeGenState:
         """
         Reject the generated code changes.
         

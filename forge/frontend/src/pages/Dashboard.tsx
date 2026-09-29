@@ -19,12 +19,15 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  GitCommit,
+  RotateCcw,
 } from "lucide-react";
 import { Page, Card, StatCard, Button, Badge, StatusDot, Logo } from "../components/ui";
 import HowForgeWorks from "../components/HowForgeWorks";
 import {
   getGraphStats, listCache, deleteCacheEntry,
-  getServiceEnrichment, type CacheEntry, type ServiceEnrichment,
+  getServiceEnrichment, listVersions, downloadVersion, revertVersion,
+  type CacheEntry, type ServiceEnrichment, type VersionEntry,
 } from "../api";
 import { entryToMarkdown, triggerDownload, safeFilename } from "../utils/downloadUtils";
 import JSZip from "jszip";
@@ -54,10 +57,13 @@ export default function Dashboard() {
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [enrichmentCache, setEnrichmentCache] = useState<Record<string, ServiceEnrichment>>({});
   const [enrichmentLoading, setEnrichmentLoading] = useState<string | null>(null);
+  const [versions, setVersions] = useState<VersionEntry[]>([]);
+  const [revertingHash, setRevertingHash] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
     loadCache();
+    loadVersions();
   }, []);
 
   async function loadCache() {
@@ -66,6 +72,28 @@ export default function Dashboard() {
       setCacheEntries(entries);
     } catch {
       // cache unavailable — not critical
+    }
+  }
+
+  async function loadVersions() {
+    try {
+      const v = await listVersions();
+      setVersions(v);
+    } catch {
+      // sync feature may not be enabled — not critical
+    }
+  }
+
+  async function handleRevert(stateId: string, shortHash: string) {
+    if (!stateId) return;
+    setRevertingHash(shortHash);
+    try {
+      await revertVersion(stateId);
+      await loadVersions(); // refresh list
+    } catch (err: any) {
+      console.error("Revert failed:", err.message);
+    } finally {
+      setRevertingHash(null);
     }
   }
 
@@ -562,6 +590,73 @@ export default function Dashboard() {
                         >
                           <Trash2 size={12} />
                         </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Version History */}
+          {versions.length > 0 && (
+            <motion.div
+              className="flex flex-col"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.38 }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <GitCommit size={16} className="text-[var(--color-accent)]" />
+                <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  AI Commits
+                </h2>
+                <Badge variant="accent">{versions.length}</Badge>
+              </div>
+
+              <Card className="overflow-hidden">
+                <div className="overflow-y-scroll divide-y divide-[var(--color-glass-border)]" style={{ maxHeight: "240px" }}>
+                  {versions.map((v) => {
+                    const date = new Date(v.timestamp);
+                    const ago = Math.round((Date.now() - date.getTime()) / 60000);
+                    const agoStr = ago < 60 ? `${ago}m ago` : `${Math.round(ago / 60)}h ago`;
+                    const isReverting = revertingHash === v.short_hash;
+
+                    return (
+                      <div key={v.commit_hash} className="flex items-start gap-2 px-3 py-2.5 hover:bg-[var(--color-glass-bg)] group transition-colors">
+                        {/* hash badge */}
+                        <span className="font-mono text-[10px] text-[var(--color-accent)] bg-[var(--color-glass-bg)] px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                          {v.short_hash}
+                        </span>
+
+                        {/* message + files */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-[var(--color-text-primary)] truncate">
+                            {v.message.replace(/^AI codegen:\s*/i, "")}
+                          </p>
+                          <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
+                            {v.changed_files.length} file{v.changed_files.length !== 1 ? "s" : ""} · {agoStr}
+                          </p>
+                        </div>
+
+                        {/* actions */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => downloadVersion(v.commit_hash, v.short_hash)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[var(--color-glass-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+                            title="Download zip at this commit"
+                          >
+                            <Download size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleRevert(v.state_id, v.short_hash)}
+                            disabled={isReverting}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[var(--color-glass-bg)] text-[var(--color-text-muted)] hover:text-yellow-400 disabled:opacity-50"
+                            title="Revert this commit"
+                          >
+                            <RotateCcw size={13} className={isReverting ? "animate-spin" : ""} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

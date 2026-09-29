@@ -222,26 +222,46 @@ class VerifierTools:
         Returns:
             {valid, errors}
         """
+        # node --check does NOT support -e (inline code). It only accepts a file path.
+        # Write code to a temp file and run node --check <file> instead.
         try:
-            result = subprocess.run(
-                ['node', '--check', '-e', code],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.js',
+                delete=False,
+                encoding='utf-8',
+            ) as f:
+                f.write(code)
+                temp_path = f.name
+
+            try:
+                result = subprocess.run(
+                    ['node', '--check', temp_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            finally:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
             if result.returncode == 0:
                 return {"valid": True, "errors": []}
             else:
                 error = result.stderr.strip()
-                # Parse line number from error
-                match = re.search(r':(\d+)', error)
+                # Extract line number from the first "file:LINE\n" in the error,
+                # not from the Node internals stack trace further down.
+                match = re.search(r'^[^\n]*:(\d+)\n', error)
                 line = int(match.group(1)) if match else None
+                # Strip the temp file path so callers see a clean message.
+                error_clean = re.sub(r'[A-Za-z]:\\[^:]+:|/tmp/[^:]+:', '', error)
                 return {
                     "valid": False,
-                    "errors": [{"line": line, "message": error}]
+                    "errors": [{"line": line, "message": error_clean.strip()}],
                 }
-                
+
         except subprocess.TimeoutExpired:
             return {"valid": False, "errors": [{"message": "Syntax check timed out"}]}
         except FileNotFoundError:

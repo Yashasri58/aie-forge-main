@@ -92,8 +92,11 @@ class GraphRebuilder:
             )
             _log("Codegraph extraction complete")
         except Exception as e:
-            _log(f"codegraph rebuild failed: {e}", "error")
-            return RebuildResult(success=False, error=str(e))
+            # Non-fatal — fall through to Kuzu reinit using whatever extraction is
+            # already on disk. Handles codec crashes on Windows consoles and other
+            # transient codegraph-tools failures.
+            _log(f"codegraph extraction failed (non-fatal, using existing): {e}", "warning")
+            logger.warning(f"[GraphRebuilder] _rebuild_code error: {e} — continuing with existing extraction")
 
         # ── Steps 2–6: close old store, reinit, hot-swap (under lock) ─────
         _log("Acquiring graph lock for hot-swap...")
@@ -126,15 +129,39 @@ class GraphRebuilder:
         Run _rebuild_code() from codegraph.watch.
         This re-extracts only changed files (cache-based) and writes a new
         combined_extraction.json + graph.json.
+
+        Redirects stdout/stderr to an in-memory buffer so that codegraph-tools
+        print() calls with unicode characters don't crash on Windows cp1252 consoles.
         """
+        import io
+        import sys as _sys
+
         try:
             from codegraph.watch import _rebuild_code
-            ok = _rebuild_code(self._services_root)
-            if not ok:
-                raise RuntimeError("_rebuild_code() returned False")
         except ImportError:
-            # codegraph-tools not installed — skip this step, use existing extraction
+            # codegraph-tools not installed — skip, use existing extraction
             logger.warning("[GraphRebuilder] codegraph-tools not available — using existing extraction")
+            return
+
+        # Capture all print output into a StringIO buffer — avoids codec crashes
+        # when codegraph-tools prints unicode arrows/emoji on cp1252 Windows consoles.
+        buf = io.StringIO()
+        _orig_stdout, _orig_stderr = _sys.stdout, _sys.stderr
+        _sys.stdout = _sys.stderr = buf
+
+        try:
+            ok = _rebuild_code(self._services_root)
+        finally:
+            _sys.stdout = _orig_stdout
+            _sys.stderr = _orig_stderr
+            captured = buf.getvalue()
+            if captured.strip():
+                # Log the captured output through our logger (safe UTF-8 path)
+                for line in captured.splitlines():
+                    logger.info(f"[codegraph] {line}")
+
+        if not ok:
+            raise RuntimeError("_rebuild_code() returned False — see [codegraph] log lines above")
 
     # ─── Kuzu reinit ─────────────────────────────────────────────────────────
 
@@ -210,6 +237,16 @@ class GraphRebuilder:
             new_agent = ImpactAgent(new_store, new_tools)
             new_orch  = PipelineOrchestrator(new_agent)
             new_cg    = CodeGenOrchestrator(new_store, str(self._services_root))
+
+            # Preserve in-memory state from the old orchestrator so the UI
+            # doesn't get 404s after the graph rebuild swaps the instance.
+            import sys as _sys
+            main_mod = _sys.modules.get("__main__") or _sys.modules.get("main")
+            old_cg = getattr(main_mod, "_codegen_orchestrator", None) if main_mod else None
+            if old_cg and hasattr(old_cg, "_states"):
+                new_cg._states = old_cg._states
+            # Wire the graph rebuilder into the new orchestrator too
+            new_cg._graph_rebuilder = self
         except Exception as e:
             logger.warning(f"[GraphRebuilder] Agent init failed (non-fatal): {e}")
 
@@ -221,8 +258,9 @@ class GraphRebuilder:
 
     def _safe_delete_kuzu(self) -> None:
         """
-        Delete the Kuzu database directory with path safety check.
-        Only deletes code_graph.kuzu and only if it's under services_root.
+        Delete the Kuzu database file/directory (and its WAL file) with path
+        safety check. Only deletes code_graph.kuzu[.wal] under services_root.
+        Handles both single-file Kuzu DBs and directory-format DBs.
         """
         kuzu_path = self._kuzu_db_path.resolve()
 
@@ -237,9 +275,21 @@ class GraphRebuilder:
         # Must be named code_graph.kuzu (extra guard)
         if kuzu_path.name != "code_graph.kuzu":
             raise RuntimeError(
-                f"[GraphRebuilder] SAFETY: refusing to delete directory not named 'code_graph.kuzu': {kuzu_path}"
+                f"[GraphRebuilder] SAFETY: refusing to delete path not named 'code_graph.kuzu': {kuzu_path}"
             )
 
+        # Delete main DB (file or directory)
         if kuzu_path.exists():
-            shutil.rmtree(kuzu_path)
-            logger.info(f"[GraphRebuilder] Deleted stale kuzu db: {kuzu_path}")
+            if kuzu_path.is_dir():
+                shutil.rmtree(kuzu_path)
+                logger.info(f"[GraphRebuilder] Deleted stale kuzu db dir: {kuzu_path}")
+            else:
+                kuzu_path.unlink()
+                logger.info(f"[GraphRebuilder] Deleted stale kuzu db file: {kuzu_path}")
+
+        # Also delete the WAL file if present — orphaned WAL causes Kuzu to crash
+        # on the next open with "invalid unordered_map<K, T> key"
+        wal_path = kuzu_path.parent / (kuzu_path.name + ".wal")
+        if wal_path.exists():
+            wal_path.unlink()
+            logger.info(f"[GraphRebuilder] Deleted stale kuzu WAL file: {wal_path}")
