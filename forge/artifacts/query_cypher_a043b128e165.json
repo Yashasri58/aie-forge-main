@@ -1,0 +1,83 @@
+{
+  "query": "MATCH (s:Service)-[:CONTAINS]->(sym:Symbol) WHERE s.name = 'ledger-service' AND sym.kind = 'function' RETURN sym.name",
+  "results": [
+    {
+      "sym.name": "getDatabase"
+    },
+    {
+      "sym.name": "initializeDatabase"
+    },
+    {
+      "sym.name": "generateUUID"
+    },
+    {
+      "sym.name": "EntryRepository"
+    },
+    {
+      "sym.name": ".findAll"
+    },
+    {
+      "sym.name": ".findByEntryId"
+    },
+    {
+      "sym.name": ".findByPaymentId"
+    },
+    {
+      "sym.name": ".findByAccountId"
+    },
+    {
+      "sym.name": ".create"
+    },
+    {
+      "sym.name": ".createMany"
+    },
+    {
+      "sym.name": ".getAccountBalance"
+    },
+    {
+      "sym.name": ".countByPaymentId"
+    },
+    {
+      "sym.name": "LedgerService"
+    },
+    {
+      "sym.name": ".getAllEntries"
+    },
+    {
+      "sym.name": ".getEntryById"
+    },
+    {
+      "sym.name": ".getEntriesByPaymentId"
+    },
+    {
+      "sym.name": ".getEntriesByAccountId"
+    },
+    {
+      "sym.name": ".createPostingEntries"
+    },
+    {
+      "sym.name": ".getPostingSummary"
+    },
+    {
+      "sym.name": ".calculateAccountBalance"
+    },
+    {
+      "sym.name": "formatEntryResponse"
+    },
+    {
+      "sym.name": "roundAmount"
+    },
+    {
+      "sym.name": "formatEntryDisplay"
+    },
+    {
+      "sym.name": "generateEntryId"
+    },
+    {
+      "sym.name": "validatePostingRequest"
+    },
+    {
+      "sym.name": "isValidEntryType"
+    }
+  ]
+}

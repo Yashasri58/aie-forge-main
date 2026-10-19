@@ -1,0 +1,255 @@
+{
+  "query": "MATCH (s:Service)-[:CONTAINS]->(sym:Symbol) WHERE s.name = 'account-service' RETURN sym.name, sym.kind, sym.file LIMIT 100",
+  "results": [
+    {
+      "sym.name": "index",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "database",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "getDatabase",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "initializeDatabase",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "seedAccounts",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "accountRepository",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "AccountRepository",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".findAll",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".findById",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".findByAccountNumber",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".findByAccountNumberAndBankCode",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".create",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".updateBalance",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".updateStatus",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".getBalance",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "accounts",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "accountService",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "AccountService",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".getAllAccounts",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".getAccountById",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".getAccountByNumber",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".lookupAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".createAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".getBalance",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".updateBalance",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".debitAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".creditAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".freezeAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": ".activateAccount",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatters",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatAccountResponse",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatCurrency",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "maskAccountNumber",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatBankCode",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatHolderName",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatAccountSummary",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "formatBalanceChange",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "idGenerator",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "generateAccountId",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "generateUUID",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "generateRequestId",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "validators",
+      "sym.kind": "file",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "validateAccountData",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "validateBalanceUpdate",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidAccountNumber",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidBankCode",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidCurrency",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidCountry",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidBalance",
+      "sym.kind": "function",
+      "sym.file": ""
+    },
+    {
+      "sym.name": "isValidStatus",
+      "sym.kind": "function",
+      "sym.file": ""
+    }
+  ]
+}

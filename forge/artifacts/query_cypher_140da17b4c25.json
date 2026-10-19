@@ -1,0 +1,305 @@
+{
+  "query": "\nMATCH (s:Service)-[:CONTAINS]->(sym:Symbol)\nWHERE s.name = 'account-service'\nRETURN sym.name, sym.kind, sym.file, sym.start_line\nORDER BY sym.name\n",
+  "results": [
+    {
+      "sym.name": ".activateAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".create",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".createAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".creditAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".debitAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findAll",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByAccountNumber",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByAccountNumberAndBankCode",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findById",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".freezeAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAccountById",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAccountByNumber",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAllAccounts",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getBalance",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getBalance",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".lookupAccount",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".updateBalance",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".updateBalance",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".updateStatus",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "AccountRepository",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "AccountService",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "accountRepository",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "accountService",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "accounts",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "database",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatAccountResponse",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatAccountSummary",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatBalanceChange",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatBankCode",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatHolderName",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatters",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "generateAccountId",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "generateRequestId",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "generateUUID",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "getDatabase",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "idGenerator",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "index",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "initializeDatabase",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidAccountNumber",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidBalance",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidBankCode",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidCountry",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidCurrency",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidStatus",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "maskAccountNumber",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "seedAccounts",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "validateAccountData",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "validateBalanceUpdate",
+      "sym.kind": "function",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "validators",
+      "sym.kind": "file",
+      "sym.file": "",
+      "sym.start_line": 0
+    }
+  ]
+}

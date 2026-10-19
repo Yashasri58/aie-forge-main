@@ -1,0 +1,16 @@
+[
+  {"timestamp": "2026-09-29T10:00:01.123Z", "level": "INFO", "service": "account-service", "method": "GET", "path": "/accounts", "status": 200, "duration_ms": 45, "user_id": "usr_123"},
+  {"timestamp": "2026-09-29T10:00:02.456Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts", "status": 201, "duration_ms": 120, "body": {"holderName": "John Doe", "accountNumber": "ACC001", "balance": 5000}},
+  {"timestamp": "2026-09-29T10:00:03.789Z", "level": "INFO", "service": "account-service", "method": "GET", "path": "/accounts/acc_456", "status": 200, "duration_ms": 32},
+  {"timestamp": "2026-09-29T10:00:04.012Z", "level": "INFO", "service": "account-service", "method": "GET", "path": "/accounts/acc_456/balance", "status": 200, "duration_ms": 28, "response": {"balance": 5000, "currency": "USD"}},
+  {"timestamp": "2026-09-29T10:00:05.345Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts/acc_456/debit", "status": 200, "duration_ms": 89, "body": {"amount": 500}},
+  {"timestamp": "2026-09-29T10:00:06.678Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts/acc_456/credit", "status": 200, "duration_ms": 76, "body": {"amount": 1000}},
+  {"timestamp": "2026-09-29T10:00:07.901Z", "level": "ERROR", "service": "account-service", "method": "POST", "path": "/accounts/acc_999/debit", "status": 400, "duration_ms": 15, "error": "INSUFFICIENT_BALANCE"},
+  {"timestamp": "2026-09-29T10:00:08.234Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts/acc_456/freeze", "status": 200, "duration_ms": 55},
+  {"timestamp": "2026-09-29T10:00:09.567Z", "level": "ERROR", "service": "account-service", "method": "POST", "path": "/accounts/acc_456/debit", "status": 400, "duration_ms": 12, "error": "ACCOUNT_INACTIVE"},
+  {"timestamp": "2026-09-29T10:00:10.890Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts/acc_456/activate", "status": 200, "duration_ms": 48},
+  {"timestamp": "2026-09-29T10:00:11.123Z", "level": "INFO", "service": "account-service", "method": "POST", "path": "/accounts/lookup", "status": 200, "duration_ms": 35, "body": {"accountNumber": "ACC001", "bankCode": "HSBC"}},
+  {"timestamp": "2026-09-29T10:00:12.456Z", "level": "INFO", "service": "account-service", "method": "PUT", "path": "/accounts/acc_456/balance", "status": 200, "duration_ms": 67, "body": {"balance": 6500}},
+  {"timestamp": "2026-09-29T10:00:13.789Z", "level": "ERROR", "service": "account-service", "method": "GET", "path": "/accounts/acc_nonexistent", "status": 404, "duration_ms": 8, "error": "ACCOUNT_NOT_FOUND"},
+  {"timestamp": "2026-09-29T10:00:14.012Z", "level": "INFO", "service": "account-service", "method": "GET", "path": "/health", "status": 200, "duration_ms": 3}
+]

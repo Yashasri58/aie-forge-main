@@ -1,0 +1,135 @@
+{
+  "query": "MATCH (s:Service)-[:CONTAINS]->(sym:Symbol) WHERE s.name = 'ledger-service' AND sym.kind = 'function' RETURN sym.name, sym.file, sym.start_line",
+  "results": [
+    {
+      "sym.name": "getDatabase",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "initializeDatabase",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "generateUUID",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "EntryRepository",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findAll",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByEntryId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByPaymentId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".findByAccountId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".create",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".createMany",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAccountBalance",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".countByPaymentId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "LedgerService",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getAllEntries",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getEntryById",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getEntriesByPaymentId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getEntriesByAccountId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".createPostingEntries",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".getPostingSummary",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": ".calculateAccountBalance",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatEntryResponse",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "roundAmount",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "formatEntryDisplay",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "generateEntryId",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "validatePostingRequest",
+      "sym.file": "",
+      "sym.start_line": 0
+    },
+    {
+      "sym.name": "isValidEntryType",
+      "sym.file": "",
+      "sym.start_line": 0
+    }
+  ]
+}
